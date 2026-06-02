@@ -56,8 +56,6 @@ defmodule NauticNet.CAN.Fake.Server do
       ) do
     case open_log_device(filename_or_list, state) do
       {:ok, device, close_device_fn} ->
-        NauticNet.Discovery.forget_all()
-
         state =
           %{
             state

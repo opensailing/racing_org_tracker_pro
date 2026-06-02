@@ -21,14 +21,22 @@ defmodule NauticNet.Discovery do
   def handle_info(:update_devices, state) do
     state.virtual_device_pid
     |> VirtualDevice.known_network_devices()
-    |> Enum.map(fn {_source_addr, %DeviceInfo{} = device_info} ->
+    |> to_network_devices()
+    |> NauticNet.DataSetRecorder.add_network_devices()
+
+    {:noreply, state}
+  end
+
+  @doc """
+  Maps the virtual device's known NMEA 2000 network devices (keyed by source
+  address) into protobuf `NetworkDevice` structs for upload.
+  """
+  def to_network_devices(known_network_devices) do
+    Enum.map(known_network_devices, fn {_source_addr, %DeviceInfo{} = device_info} ->
       NetworkDevice.new(
         hw_id: NauticNet.DeviceInfo.hw_id(device_info.nmea_name),
         name: "#{device_info.manufacture_name} - #{device_info.model_id}"
       )
     end)
-    |> NauticNet.DataSetRecorder.add_network_devices()
-
-    {:noreply, state}
   end
 end

@@ -81,43 +81,37 @@ defmodule NauticNet.Telemetry.Reporter do
       :telemetry.attach(id, event, &__MODULE__.handle_event/4, config)
     end
 
+    # Interval metrics are flushed on a fixed timer; `asap?` metrics report on
+    # each event (see handle_event/4).
+    timers =
+      for metric <- metrics, every_ms = metric.reporter_options[:every_ms] do
+        {:ok, tref} = :timer.send_interval(every_ms, {:flush, metric})
+        tref
+      end
+
     state = %{
       tables: tables,
       events: Map.keys(groups),
-      callback: callback
+      callback: callback,
+      timers: timers
     }
 
     {:ok, state}
   end
 
-  def needs_report_at?(metric, current_monotonic_ms, config) do
-    cond do
-      metric.reporter_options[:asap?] ->
-        true
-
-      every_ms = metric.reporter_options[:every_ms] ->
-        table = config.tables[metric.__struct__]
-        rows = :ets.lookup(table, metric.name)
-
-        if rows == [] do
-          # Nothing to report
-          false
-        else
-          # Determine if enough time has elapsed by comparing the earliest timestamp in ETS to now
-          earliest_monotonic_ms =
-            rows
-            |> Enum.map(fn {_metric_name, _measurement, metadata} ->
-              metadata.timestamp_monotonic_ms
-            end)
-            |> Enum.min()
-
-          current_monotonic_ms - earliest_monotonic_ms > every_ms
-        end
-    end
+  @impl true
+  def handle_call({:report, metric}, _, state) do
+    do_report(metric, state)
+    {:reply, :ok, state}
   end
 
   @impl true
-  def handle_call({:report, metric}, _, state) do
+  def handle_info({:flush, metric}, state) do
+    do_report(metric, state)
+    {:noreply, state}
+  end
+
+  defp do_report(metric, state) do
     table = state.tables[metric.__struct__]
     rows = :ets.lookup(table, metric.name)
     :ets.delete(table, metric.name)
@@ -135,14 +129,16 @@ defmodule NauticNet.Telemetry.Reporter do
 
       report_on(metric, device_id, measurements, state.callback)
     end
-
-    {:reply, :ok, state}
   end
 
   @impl true
   def terminate(_, state) do
     for event <- state.events do
       :telemetry.detach({__MODULE__, event, self()})
+    end
+
+    for tref <- state.timers do
+      :timer.cancel(tref)
     end
 
     :ok
@@ -155,15 +151,13 @@ defmodule NauticNet.Telemetry.Reporter do
       tags = extract_tags(metric, metadata)
 
       if keep?(metric, metadata) do
-        # Check for reportability BEFORE recording this measurement, so that we know when the last measurement
-        # was received so that we can compare the current event's timestamp to the previous events'
-        if needs_report_at?(metric, metadata.timestamp_monotonic_ms, config) do
-          # This is a blocking call... not ideal, but it was done this way to ensure we only report on EXISTING
-          # measurements only, before aggregating the current measurement
+        aggregate(metric, event_name, measurement, metadata, tags, config)
+
+        # `asap?` metrics report on every event; interval metrics are flushed by
+        # the periodic timer started in init/1.
+        if metric.reporter_options[:asap?] do
           report(config.reporter_pid, metric)
         end
-
-        aggregate(metric, event_name, measurement, metadata, tags, config)
       end
     end
   end
@@ -213,7 +207,7 @@ defmodule NauticNet.Telemetry.Reporter do
          callback
        ) do
     # The summary periods will be very short, so this timestamp is close enough
-    timestamp = hd(measurements).timestamp
+    timestamp = Map.get(hd(measurements), :timestamp)
 
     count = length(measurements)
 
@@ -255,9 +249,6 @@ defmodule NauticNet.Telemetry.Reporter do
 
   defp report_on(%Summary{} = metric, device_id, [measurement | _] = measurements, callback)
        when is_number(measurement) do
-    # The summary periods will be very short, so this timestamp is close enough
-    timestamp = hd(measurements).timestamp
-
     # TODO: Make this more efficient
     count = length(measurements)
     {min, max} = Enum.min_max(measurements)
@@ -265,7 +256,6 @@ defmodule NauticNet.Telemetry.Reporter do
     sum = Enum.sum(measurements)
 
     callback.(metric.name, device_id, %{
-      timestamp: timestamp,
       min: min,
       max: max,
       mean: sum / count,

@@ -67,7 +67,7 @@ defmodule NauticNet.CANTest do
       packet_type: :fast,
       parameters: %NauticNet.NMEA2000.J1939.GNSSPositionDataParams{
         altitude: -23.49,
-        datetime: ~U[2022-06-28T14:52:24.000000Z],
+        datetime: ~U[2022-06-28 14:52:24Z],
         latitude: 42.26200383333334,
         longitude: -70.89279083333334,
         sid: 201

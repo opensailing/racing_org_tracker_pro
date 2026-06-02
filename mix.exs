@@ -9,15 +9,18 @@ defmodule NauticNet.Device.MixProject do
     [
       app: @app,
       version: @version,
-      elixir: "~> 1.9",
-      archives: [nerves_bootstrap: "~> 1.10"],
+      elixir: "~> 1.17",
+      archives: [nerves_bootstrap: "~> 1.13"],
       start_permanent: Mix.env() == :prod,
       build_embedded: true,
       deps: deps(),
       releases: [{@app, release()}],
-      preferred_cli_target: [run: :host, test: :host],
       aliases: aliases()
     ]
+  end
+
+  def cli do
+    [preferred_targets: [run: :host, test: :host]]
   end
 
   # Run "mix help compile.app" to learn about applications.
@@ -32,34 +35,40 @@ defmodule NauticNet.Device.MixProject do
   defp deps do
     [
       # Dependencies for all targets
-      {:nerves, "~> 1.10", runtime: false},
-      {:shoehorn, "~> 0.8.0"},
-      {:ring_logger, "~> 0.8.3"},
-      {:toolshed, "~> 0.2.13"},
+      {:nerves, "~> 1.14", runtime: false},
+      {:shoehorn, "~> 0.9"},
+      {:ring_logger, "~> 0.11"},
+      {:toolshed, "~> 0.4"},
       {:ssh_subsystem_fwup, "~> 0.6.1"},
       {:nerves_time, "~> 0.4.5", targets: @all_device_targets},
 
       # Dependencies for all targets except :host
-      {:nerves_runtime, "~> 0.11.6", targets: @all_device_targets},
-      {:nerves_pack, "~> 0.6.0", targets: @all_device_targets},
+      {:nerves_runtime, "~> 0.13", targets: @all_device_targets},
+      {:nerves_pack, "~> 0.7", targets: @all_device_targets},
 
       # CANUSB serial communication
-      {:circuits_uart, "~> 1.3"},
+      {:circuits_uart, "~> 1.5"},
 
       # Dev tools
       {:mix_test_watch, "~> 1.0", only: [:dev, :test], runtime: false},
 
       # Telemetry
       {:telemetry, "~> 1.0"},
-      {:telemetry_metrics, "~> 0.6.1"},
+      {:telemetry_metrics, "~> 0.6"},
 
       # Cellular
-      {:vintage_net_qmi, "~> 0.3.2", targets: @all_device_targets},
+      {:vintage_net_qmi, "~> 0.4", targets: @all_device_targets},
 
       # HTTP client
       {:tesla, "~> 1.4"},
       {:hackney, "~> 1.17"},
-      {:jason, ">= 1.0.0"}
+      {:jason, ">= 1.0.0"},
+
+      # :nmea pulls in ng_can, a Linux/SocketCAN NIF (needs <linux/can.h>) that
+      # only builds on the Nerves target. Override it to target-only so host
+      # builds — which use the Fake CAN driver — don't try to compile the NIF.
+      # :nmea references NgCan only at runtime, so host compilation is unaffected.
+      {:ng_can, github: "rosepointnav/ng_can", override: true, targets: @all_device_targets}
     ] ++ nautic_net_deps()
   end
 
@@ -78,13 +87,35 @@ defmodule NauticNet.Device.MixProject do
       [
         {:nautic_net_nmea2000, git: "git@github.com:opensailing/nautic_net_nmea2000.git"},
         {:nautic_net_protobuf, git: "git@github.com:opensailing/nautic_net_protobuf.git"},
-        {:nautic_net_system_rpi3,
-         git: "git@github.com:opensailing/nautic_net_system_rpi3.git",
-         tag: "v1.22.2",
-         runtime: false,
-         targets: :nautic_net_rpi3},
-        {:nmea, git: "git@github.com:opensailing/nmea"}
+        nautic_net_system_dep(),
+        nautic_net_nmea_dep()
       ]
+    end
+  end
+
+  # The Nerves system fork is only fetched when building target firmware. Point
+  # at a local checkout with NAUTIC_NET_SYSTEM_PATH for system development;
+  # otherwise pull the OTP 28 branch from GitHub.
+  defp nautic_net_system_dep do
+    # `nerves: [compile: true]` forces the system to be built from source (there
+    # is no prebuilt artifact published for this fork).
+    opts = [runtime: false, targets: :nautic_net_rpi3, nerves: [compile: true]]
+
+    if path = System.get_env("NAUTIC_NET_SYSTEM_PATH") do
+      {:nautic_net_system_rpi3, [path: path] ++ opts}
+    else
+      {:nautic_net_system_rpi3,
+       [git: "git@github.com:opensailing/nautic_net_system_rpi3.git", branch: "otp28-upgrade"] ++ opts}
+    end
+  end
+
+  # Point at a local nmea checkout with NAUTIC_NET_NMEA_PATH while developing the
+  # library; otherwise pull from GitHub.
+  defp nautic_net_nmea_dep do
+    if path = System.get_env("NAUTIC_NET_NMEA_PATH") do
+      {:nmea, path: path}
+    else
+      {:nmea, git: "git@github.com:opensailing/nmea", branch: "ng-can-optional"}
     end
   end
 
