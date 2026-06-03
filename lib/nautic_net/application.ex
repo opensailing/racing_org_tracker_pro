@@ -75,7 +75,10 @@ defmodule NauticNet.Application do
   # Receives, validates, and de-duplicates SailRoute server commands arriving on
   # the device-initiated UDP socket.
   defp commands_child do
-    {NauticNet.Commands, name: NauticNet.Commands, device_id: NauticNet.boat_identifier()}
+    {NauticNet.Commands,
+     name: NauticNet.Commands,
+     device_id: NauticNet.boat_identifier(),
+     store_dir: Application.get_env(:nautic_net_device, :assignment_directory)}
   end
 
   defp product do

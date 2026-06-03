@@ -15,6 +15,8 @@ defmodule NauticNet.Commands do
 
   require Logger
 
+  alias NauticNet.Commands.Assignment
+  alias NauticNet.Commands.Store
   alias NauticNet.Protobuf.CommandAck
   alias NauticNet.Protobuf.DeviceCommand
   alias NauticNet.Protobuf.ServerReply
@@ -67,10 +69,30 @@ defmodule NauticNet.Commands do
       assignment: nil,
       ack: nil,
       subscribers: MapSet.new(),
-      now_fn: opts[:now_fn] || (&DateTime.utc_now/0)
+      now_fn: opts[:now_fn] || (&DateTime.utc_now/0),
+      store_dir: opts[:store_dir]
     }
 
-    {:ok, state}
+    {:ok, restore(state)}
+  end
+
+  # Re-hydrate the persisted assignment at boot so applied state, the ACK, and
+  # version-based de-duplication survive reboots.
+  defp restore(%{store_dir: nil} = state), do: state
+
+  defp restore(%{store_dir: dir} = state) do
+    case Store.load(dir) do
+      {:ok, %Assignment{} = assignment} ->
+        %{
+          state
+          | assignment: assignment,
+            ack: ack_from_assignment(assignment),
+            applied_command_ids: MapSet.put(state.applied_command_ids, assignment.command_id)
+        }
+
+      :empty ->
+        state
+    end
   end
 
   @impl true
@@ -161,32 +183,44 @@ defmodule NauticNet.Commands do
   defp check_not_stale(_command, _state), do: :ok
 
   defp apply_command(%DeviceCommand{} = command, state) do
-    assignment = %{
-      assignment_id: command.assignment_id,
-      version: command.assignment_version,
-      hash: command.assignment_hash,
-      command_id: command.command_id,
-      expires_at: command.expires_at,
-      command: command
-    }
-
-    ack =
-      CommandAck.new(
-        command_id: command.command_id,
-        assignment_id: command.assignment_id,
-        assignment_version: command.assignment_version
-      )
-
     state = %{
       state
-      | assignment: assignment,
-        ack: ack,
+      | ack: build_ack(command),
         applied_command_ids: MapSet.put(state.applied_command_ids, command.command_id)
     }
+
+    state =
+      case Assignment.update(state.assignment, command) do
+        {:updated, assignment} ->
+          maybe_persist(state.store_dir, assignment)
+          %{state | assignment: assignment}
+
+        :no_change ->
+          state
+      end
 
     notify(state, command)
     {:applied, state}
   end
+
+  defp build_ack(%DeviceCommand{} = command) do
+    CommandAck.new(
+      command_id: command.command_id,
+      assignment_id: command.assignment_id,
+      assignment_version: command.assignment_version
+    )
+  end
+
+  defp ack_from_assignment(%Assignment{} = assignment) do
+    CommandAck.new(
+      command_id: assignment.command_id,
+      assignment_id: assignment.assignment_id,
+      assignment_version: assignment.version
+    )
+  end
+
+  defp maybe_persist(nil, _assignment), do: :ok
+  defp maybe_persist(dir, assignment), do: Store.save(dir, assignment)
 
   defp notify(state, command) do
     for pid <- state.subscribers, do: send(pid, {:nautic_net_command, command})
