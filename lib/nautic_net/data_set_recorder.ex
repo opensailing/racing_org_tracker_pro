@@ -71,10 +71,7 @@ defmodule NauticNet.DataSetRecorder do
   end
 
   defp save_data_points(data_points, state) do
-    data_set =
-      Protobuf.new_data_set(data_points,
-        boat_identifier: NauticNet.boat_identifier()
-      )
+    data_set = NauticNet.data_set(data_points)
 
     path = Path.join(state.temp_dir, data_set.ref)
     File.write!(path, DataSet.encode(data_set))
@@ -84,11 +81,7 @@ defmodule NauticNet.DataSetRecorder do
   end
 
   defp save_network_devices(network_devices, state) do
-    data_set =
-      Protobuf.new_data_set([],
-        boat_identifier: NauticNet.boat_identifier(),
-        network_devices: network_devices
-      )
+    data_set = NauticNet.data_set([], network_devices: network_devices)
 
     path = Path.join(state.temp_dir, data_set.ref)
     File.write!(path, DataSet.encode(data_set))

@@ -86,10 +86,22 @@ defmodule NauticNet.Device.MixProject do
       # Pull from GitHub
       [
         {:nautic_net_nmea2000, git: "git@github.com:opensailing/nautic_net_nmea2000.git"},
-        {:nautic_net_protobuf, git: "git@github.com:opensailing/nautic_net_protobuf.git"},
+        nautic_net_protobuf_dep(),
         nautic_net_system_dep(),
         nautic_net_nmea_dep()
       ]
+    end
+  end
+
+  # Point at a local nautic_net_protobuf checkout with NAUTIC_NET_PROTOBUF_PATH
+  # while developing the wire contract; otherwise pull the command-contract
+  # branch from GitHub.
+  defp nautic_net_protobuf_dep do
+    if path = System.get_env("NAUTIC_NET_PROTOBUF_PATH") do
+      {:nautic_net_protobuf, path: path}
+    else
+      {:nautic_net_protobuf,
+       git: "git@github.com:opensailing/nautic_net_protobuf.git", branch: "device-command-contract"}
     end
   end
 

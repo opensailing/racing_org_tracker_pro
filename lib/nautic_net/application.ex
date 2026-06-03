@@ -52,6 +52,7 @@ defmodule NauticNet.Application do
   # Product: NMEA 2000 standalone, on-board device
   defp children(:logger, _target) do
     [
+      commands_child(),
       NauticNet.Telemetry,
       {NauticNet.Serial, serial_config()},
       {NauticNet.WebClients.UDPClient, udp_config()},
@@ -63,11 +64,18 @@ defmodule NauticNet.Application do
   # Product: Base station receiver node for nautic_net_tracker_mini
   defp children(:uplink, _target) do
     [
+      commands_child(),
       {NauticNet.WebClients.UDPClient, udp_config()},
       {NauticNet.DataSetRecorder, chunk_every: @max_unfragmented_udp_payload_size},
       {NauticNet.DataSetUploader, via: :udp},
       NauticNet.BaseStation
     ]
+  end
+
+  # Receives, validates, and de-duplicates SailRoute server commands arriving on
+  # the device-initiated UDP socket.
+  defp commands_child do
+    {NauticNet.Commands, name: NauticNet.Commands, device_id: NauticNet.boat_identifier()}
   end
 
   defp product do

@@ -11,7 +11,6 @@ defmodule NauticNet.DataSetUploader do
   require Logger
 
   alias NauticNet.DataSetRecorder
-  alias NauticNet.Protobuf
   alias NauticNet.Protobuf.DataSet
   alias NauticNet.WebClients.HTTPClient
   alias NauticNet.WebClients.UDPClient
@@ -71,7 +70,7 @@ defmodule NauticNet.DataSetUploader do
   end
 
   def handle_info(:ping, state) do
-    Protobuf.new_data_set([], boat_identifier: NauticNet.boat_identifier())
+    NauticNet.data_set([])
     |> DataSet.encode()
     |> upload_data_set(state.via)
 
