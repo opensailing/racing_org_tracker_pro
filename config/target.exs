@@ -50,7 +50,8 @@ config :nautic_net_device, NauticNet.Serial,
 config :nautic_net_device,
   tailscale_auth_key: System.get_env("TAILSCALE_AUTH_KEY"),
   data_set_directory: "/data/datasets",
-  assignment_directory: "/data/assignment"
+  assignment_directory: "/data/assignment",
+  race_archive_directory: "/data/races"
 
 config :logger, level: :info
 

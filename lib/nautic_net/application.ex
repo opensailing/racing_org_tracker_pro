@@ -55,6 +55,7 @@ defmodule NauticNet.Application do
       commands_child(),
       NauticNet.Telemetry,
       {NauticNet.Sampling, name: NauticNet.Sampling},
+      archive_child(),
       {NauticNet.Serial, serial_config()},
       {NauticNet.WebClients.UDPClient, udp_config()},
       {NauticNet.DataSetRecorder, chunk_every: @max_unfragmented_udp_payload_size},
@@ -80,6 +81,15 @@ defmodule NauticNet.Application do
      name: NauticNet.Commands,
      device_id: NauticNet.boat_identifier(),
      store_dir: Application.get_env(:nautic_net_device, :assignment_directory)}
+  end
+
+  # Durable local race archiving + reconciliation with SailRoute.
+  defp archive_child do
+    {NauticNet.Race.Archive,
+     name: NauticNet.Race.Archive,
+     base_dir: Application.get_env(:nautic_net_device, :race_archive_directory),
+     sampling: NauticNet.Sampling,
+     device_id: NauticNet.boat_identifier()}
   end
 
   defp product do

@@ -36,6 +36,9 @@ defmodule NauticNet.Sampling do
   @doc "Force a re-evaluation now; returns `{phase, mode}`."
   def reevaluate(server \\ __MODULE__), do: GenServer.call(server, :reevaluate)
 
+  @doc "Subscribe `pid` to `{:sampling_phase, old_phase, new_phase}` notifications."
+  def subscribe(server \\ __MODULE__, pid \\ self()), do: GenServer.call(server, {:subscribe, pid})
+
   # Telemetry handler (runs in the emitting process): forward the latest position.
   @doc false
   def handle_position(_event, %{position: %{lat: lat, lon: lon}}, _meta, %{pid: pid}) do
@@ -66,7 +69,8 @@ defmodule NauticNet.Sampling do
       reevaluate_interval_ms: interval_ms,
       phase: :idle,
       mode: :outing_1hz,
-      position: nil
+      position: nil,
+      phase_subscribers: MapSet.new()
     }
 
     # Boot at 1 Hz, then converge to the correct phase.
@@ -83,6 +87,10 @@ defmodule NauticNet.Sampling do
   def handle_call(:reevaluate, _from, state) do
     state = do_reevaluate(state)
     {:reply, {state.phase, state.mode}, state}
+  end
+
+  def handle_call({:subscribe, pid}, _from, state) do
+    {:reply, :ok, %{state | phase_subscribers: MapSet.put(state.phase_subscribers, pid)}}
   end
 
   @impl true
@@ -108,6 +116,10 @@ defmodule NauticNet.Sampling do
     if mode != state.mode do
       Logger.info("Sampling mode #{state.mode} -> #{mode} (phase #{phase})")
       set_interval(state, mode)
+    end
+
+    if phase != state.phase do
+      for pid <- state.phase_subscribers, do: send(pid, {:sampling_phase, state.phase, phase})
     end
 
     %{state | phase: phase, mode: mode}

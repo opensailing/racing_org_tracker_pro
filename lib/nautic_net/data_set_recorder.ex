@@ -27,6 +27,11 @@ defmodule NauticNet.DataSetRecorder do
     GenServer.cast(__MODULE__, {:add_network_devices, network_devices})
   end
 
+  @doc "Enqueue an already-encoded DataSet binary for upload (manifest / chunk re-send)."
+  def enqueue_encoded(binary) when is_binary(binary) do
+    GenServer.cast(__MODULE__, {:enqueue_encoded, binary})
+  end
+
   def init(opts) do
     Process.flag(:trap_exit, true)
 
@@ -54,6 +59,13 @@ defmodule NauticNet.DataSetRecorder do
     {:noreply, state}
   end
 
+  def handle_cast({:enqueue_encoded, binary}, state) do
+    path = Path.join(state.temp_dir, unique_ref())
+    File.write!(path, binary)
+    DataSetUploader.add_file(path)
+    {:noreply, state}
+  end
+
   # Returns a tuple of {chunks_of_data_points_to_save, remaining_data_points}
   defp chunkify(data_points, {max_points, :points}) do
     data_points
@@ -72,13 +84,18 @@ defmodule NauticNet.DataSetRecorder do
 
   defp save_data_points(data_points, state) do
     data_set = NauticNet.data_set(data_points)
+    encoded = DataSet.encode(data_set)
 
     path = Path.join(state.temp_dir, data_set.ref)
-    File.write!(path, DataSet.encode(data_set))
+    File.write!(path, encoded)
     Logger.debug("Saved #{length(data_points)} data points to #{path}")
 
+    # Archive the sampled output stream locally during a race (no-op otherwise).
+    NauticNet.Race.Archive.record(encoded)
     DataSetUploader.add_file(path)
   end
+
+  defp unique_ref, do: Base.url_encode64(:crypto.strong_rand_bytes(10), padding: false)
 
   defp save_network_devices(network_devices, state) do
     data_set = NauticNet.data_set([], network_devices: network_devices)
