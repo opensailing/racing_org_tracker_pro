@@ -29,4 +29,11 @@ defmodule NauticNet.DataSetAckTest do
     assert %CommandAck{command_id: "ack-test-1", assignment_id: "asg-ack", assignment_version: 7} =
              NauticNet.data_set([]).ack
   end
+
+  test "data_set/2 tags the current sample mode and race phase" do
+    # With no race underway the device idles at 1 Hz.
+    data_set = NauticNet.data_set([])
+    assert data_set.sample_mode == :SAMPLE_MODE_OUTING_1HZ
+    assert data_set.race_phase == :RACE_PHASE_IDLE
+  end
 end

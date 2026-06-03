@@ -23,7 +23,25 @@ defmodule NauticNet do
   `NauticNet.Protobuf.new_data_set/2` and override the defaults.
   """
   def data_set(data_points, opts \\ []) do
-    base = [boat_identifier: boat_identifier(), ack: NauticNet.Commands.current_ack()]
+    base = [
+      boat_identifier: boat_identifier(),
+      ack: NauticNet.Commands.current_ack(),
+      sample_mode: current_sample_mode(),
+      race_phase: current_race_phase()
+    ]
+
     NauticNet.Protobuf.new_data_set(data_points, Keyword.merge(base, opts))
+  end
+
+  defp current_sample_mode do
+    NauticNet.Sampling.Mode.to_proto(NauticNet.Sampling.current_mode())
+  catch
+    :exit, _ -> :SAMPLE_MODE_UNSPECIFIED
+  end
+
+  defp current_race_phase do
+    NauticNet.Sampling.Phase.to_proto(NauticNet.Sampling.current_phase())
+  catch
+    :exit, _ -> :RACE_PHASE_UNSPECIFIED
   end
 end

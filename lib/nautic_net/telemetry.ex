@@ -12,7 +12,9 @@ defmodule NauticNet.Telemetry do
   def child_spec(_opts) do
     %{
       id: NauticNet.Telemetry,
-      start: {NauticNet.Telemetry.Reporter, :start_link, [[metrics: metrics(), callback: &report_metric/3]]}
+      start:
+        {NauticNet.Telemetry.Reporter, :start_link,
+         [[name: NauticNet.Telemetry.Reporter, metrics: metrics(), callback: &report_metric/3]]}
     }
   end
 

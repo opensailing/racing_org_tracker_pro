@@ -74,15 +74,31 @@ defmodule NauticNet.Telemetry.ReporterTest do
     end
   end
 
-  defp start_reporter(metrics) do
+  describe "set_flush_interval/2" do
+    test "changes the output flush rate at runtime" do
+      pid = start_reporter([last_value("some.metric.value")], flush_interval_ms: 1_000)
+
+      # At 1 Hz, a value emitted now is not flushed within 50 ms.
+      telemetry_execute_value(1)
+      refute_receive {:report, [:some, :metric, :value], 1}, 50
+
+      # Speed up to ~100 Hz; the pending value flushes promptly.
+      assert :ok = NauticNet.Telemetry.Reporter.set_flush_interval(pid, 10)
+      assert_receive {:report, [:some, :metric, :value], 1}, 50
+    end
+  end
+
+  defp start_reporter(metrics, opts \\ []) do
     test_pid = self()
 
-    {:ok, pid} =
-      NauticNet.Telemetry.Reporter.start_link(
-        metrics: metrics,
-        callback: fn name, _source_addr, value -> send(test_pid, {:report, name, value}) end
-      )
+    base = [
+      metrics: metrics,
+      # Flush interval metrics quickly so the timed tests are fast.
+      flush_interval_ms: 10,
+      callback: fn name, _source_addr, value -> send(test_pid, {:report, name, value}) end
+    ]
 
+    {:ok, pid} = NauticNet.Telemetry.Reporter.start_link(Keyword.merge(base, opts))
     pid
   end
 

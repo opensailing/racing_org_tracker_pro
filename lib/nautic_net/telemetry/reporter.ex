@@ -33,6 +33,7 @@ defmodule NauticNet.Telemetry.Reporter do
 
   - `:metrics` - required; a list of telemetry metrics
   - `:callback` - required; 3-arity function to invoke when a metric is ready to report (metric_name, device_id, and value)
+  - `:flush_interval_ms` - optional; how often non-`asap?` metrics are flushed (default 1000 ms / 1 Hz)
   """
   def start_link(opts) do
     server_opts = Keyword.take(opts, [:name])
@@ -45,7 +46,9 @@ defmodule NauticNet.Telemetry.Reporter do
       opts[:callback] ||
         raise ArgumentError, "the :callback option is required by #{inspect(__MODULE__)}"
 
-    GenServer.start_link(__MODULE__, %{metrics: metrics, callback: callback}, server_opts)
+    init_args = %{metrics: metrics, callback: callback, flush_interval_ms: opts[:flush_interval_ms] || 1000}
+
+    GenServer.start_link(__MODULE__, init_args, server_opts)
   end
 
   @doc false
@@ -53,9 +56,17 @@ defmodule NauticNet.Telemetry.Reporter do
     GenServer.call(pid, {:report, metric})
   end
 
+  @doc """
+  Change how often interval metrics are flushed (the device output sample rate),
+  in milliseconds. Used by `NauticNet.Sampling` to drive 1/5/10 Hz output.
+  """
+  def set_flush_interval(server, ms) when is_integer(ms) and ms > 0 do
+    GenServer.call(server, {:set_flush_interval, ms})
+  end
+
   @impl true
   @doc false
-  def init(%{metrics: metrics, callback: callback}) do
+  def init(%{metrics: metrics, callback: callback, flush_interval_ms: flush_interval_ms}) do
     Process.flag(:trap_exit, true)
     groups = Enum.group_by(metrics, & &1.event_name)
 
@@ -81,19 +92,19 @@ defmodule NauticNet.Telemetry.Reporter do
       :telemetry.attach(id, event, &__MODULE__.handle_event/4, config)
     end
 
-    # Interval metrics are flushed on a fixed timer; `asap?` metrics report on
-    # each event (see handle_event/4).
-    timers =
-      for metric <- metrics, every_ms = metric.reporter_options[:every_ms] do
-        {:ok, tref} = :timer.send_interval(every_ms, {:flush, metric})
-        tref
-      end
+    # Non-`asap?` metrics are flushed together on a single, runtime-adjustable
+    # timer (the device output sample rate). `asap?` metrics report on each event
+    # (see handle_event/4).
+    interval_metrics = Enum.reject(metrics, & &1.reporter_options[:asap?])
+    {:ok, timer_ref} = :timer.send_interval(flush_interval_ms, :flush_all)
 
     state = %{
       tables: tables,
       events: Map.keys(groups),
       callback: callback,
-      timers: timers
+      interval_metrics: interval_metrics,
+      flush_interval_ms: flush_interval_ms,
+      timer_ref: timer_ref
     }
 
     {:ok, state}
@@ -105,9 +116,19 @@ defmodule NauticNet.Telemetry.Reporter do
     {:reply, :ok, state}
   end
 
+  def handle_call({:set_flush_interval, ms}, _, %{flush_interval_ms: ms} = state) do
+    {:reply, :ok, state}
+  end
+
+  def handle_call({:set_flush_interval, ms}, _, state) do
+    {:ok, :cancel} = :timer.cancel(state.timer_ref)
+    {:ok, timer_ref} = :timer.send_interval(ms, :flush_all)
+    {:reply, :ok, %{state | flush_interval_ms: ms, timer_ref: timer_ref}}
+  end
+
   @impl true
-  def handle_info({:flush, metric}, state) do
-    do_report(metric, state)
+  def handle_info(:flush_all, state) do
+    for metric <- state.interval_metrics, do: do_report(metric, state)
     {:noreply, state}
   end
 
@@ -137,9 +158,7 @@ defmodule NauticNet.Telemetry.Reporter do
       :telemetry.detach({__MODULE__, event, self()})
     end
 
-    for tref <- state.timers do
-      :timer.cancel(tref)
-    end
+    :timer.cancel(state.timer_ref)
 
     :ok
   end

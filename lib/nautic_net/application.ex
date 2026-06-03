@@ -54,6 +54,7 @@ defmodule NauticNet.Application do
     [
       commands_child(),
       NauticNet.Telemetry,
+      {NauticNet.Sampling, name: NauticNet.Sampling},
       {NauticNet.Serial, serial_config()},
       {NauticNet.WebClients.UDPClient, udp_config()},
       {NauticNet.DataSetRecorder, chunk_every: @max_unfragmented_udp_payload_size},
