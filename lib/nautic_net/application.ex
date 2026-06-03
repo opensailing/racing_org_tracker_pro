@@ -31,6 +31,9 @@ defmodule NauticNet.Application do
     {:ok, system_time_pid} = Supervisor.start_child(sup, NauticNet.PacketHandler.SetTimeFromGPS)
     {:ok, pid} = on_start = Supervisor.start_child(sup, {NMEA.NMEA2000.VirtualDevice, virtual_device_config()})
 
+    # Expose the VirtualDevice so NauticNet.Nav.Broadcaster can transmit nav PGNs.
+    NauticNet.put_virtual_device(pid)
+
     # Handlers must be a list of pids which define a
     # def handle_info({:data, data})
     # See NMEA.NMEA2000.VirtualDevice.AddressManager for an example
@@ -56,6 +59,7 @@ defmodule NauticNet.Application do
       NauticNet.Telemetry,
       {NauticNet.Sampling, name: NauticNet.Sampling},
       archive_child(),
+      {NauticNet.Nav.Broadcaster, name: NauticNet.Nav.Broadcaster},
       {NauticNet.Serial, serial_config()},
       {NauticNet.WebClients.UDPClient, udp_config()},
       {NauticNet.DataSetRecorder, chunk_every: @max_unfragmented_udp_payload_size},

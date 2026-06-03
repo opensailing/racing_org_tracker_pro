@@ -16,6 +16,12 @@ defmodule NauticNet do
     Application.get_env(:nautic_net_device, :git_commit)
   end
 
+  @doc "The running NMEA 2000 VirtualDevice pid (set at boot), or `nil`."
+  def virtual_device, do: :persistent_term.get({__MODULE__, :virtual_device}, nil)
+
+  @doc false
+  def put_virtual_device(pid), do: :persistent_term.put({__MODULE__, :virtual_device}, pid)
+
   @doc """
   Builds an upload `DataSet` for `data_points`, tagged with this device's
   identifier and the latest applied server-command acknowledgement (so SailRoute
