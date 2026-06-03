@@ -211,7 +211,7 @@ defmodule NauticNet.PacketHandler.EmitTelemetry do
       ) do
     if desired_device_or_permissive_mode?(state.filters, state.filter_mode, NMEA.WindData, source_name) do
       :telemetry.execute(
-        [:nautic_net, :heading],
+        [:nautic_net, :attitude],
         %{
           rad: %{
             timestamp: timestamp,
