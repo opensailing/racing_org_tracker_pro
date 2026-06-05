@@ -46,6 +46,12 @@ defmodule NauticNet.Device.MixProject do
       {:nerves_runtime, "~> 0.13", targets: @all_device_targets},
       {:nerves_pack, "~> 0.7", targets: @all_device_targets},
 
+      # Remote management: OTA firmware updates + remote console via NervesHub.
+      # castore provides the CA bundle nerves_hub_link uses for its TLS
+      # connection (it's an optional dep there, so depend on it explicitly).
+      {:nerves_hub_link, "~> 2.12", targets: @all_device_targets},
+      {:castore, "~> 1.0", targets: @all_device_targets},
+
       # CANUSB serial communication
       {:circuits_uart, "~> 1.5"},
 

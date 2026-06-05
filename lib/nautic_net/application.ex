@@ -5,8 +5,6 @@ defmodule NauticNet.Application do
 
   use Application
 
-  require Logger
-
   @max_unfragmented_udp_payload_size {508, :bytes}
 
   @impl true
@@ -19,7 +17,6 @@ defmodule NauticNet.Application do
       {:ok, vd_pid} = start_virtual_device_and_handlers(sup)
       start_discovery(sup, vd_pid)
       maybe_replay_log()
-      maybe_start_tailscale()
       {:ok, sup}
     end
   end
@@ -170,15 +167,6 @@ defmodule NauticNet.Application do
   def maybe_replay_log do
     if filename = Application.get_env(:nautic_net_device, :replay_log) do
       NauticNet.DeviceCLI.replay_log(filename, realtime?: true)
-    end
-  end
-
-  defp maybe_start_tailscale do
-    if NauticNet.Tailscale.enabled?() do
-      NauticNet.Tailscale.start!()
-      Logger.info("Tailscale started")
-    else
-      Logger.info("Tailscale will not start: no auth key provided")
     end
   end
 end

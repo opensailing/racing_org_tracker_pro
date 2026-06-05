@@ -12,8 +12,11 @@ export VINTAGE_NET_WIFI_PSK='hunter2'
 # SSH public keys separated by ";" (get from 1Password)
 export AUTHORIZED_KEYS=''
 
-# Tailscale auth key (https://login.tailscale.com/admin/settings/keys)
-export TAILSCALE_AUTH_KEY='tskey-auth-xxxxxx'
+# NervesHub remote management (OTA updates + remote console). Leave unset to
+# disable. Get the key/secret from your NervesHub Product's Shared Secrets.
+export NERVES_HUB_HOST='your.nerveshub.host'
+export NERVES_HUB_PRODUCT_KEY='nhp_xxxxxxxx'
+export NERVES_HUB_PRODUCT_SECRET='nhs_xxxxxxxx'
 
 # export REPLAY_LOG='canusb-000013.log'
 

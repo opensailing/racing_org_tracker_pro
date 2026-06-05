@@ -48,10 +48,37 @@ config :nautic_net_device, NauticNet.Serial,
   handlers: [NauticNet.PacketHandler.SetTimeFromGPS]
 
 config :nautic_net_device,
-  tailscale_auth_key: System.get_env("TAILSCALE_AUTH_KEY"),
   data_set_directory: "/data/datasets",
   assignment_directory: "/data/assignment",
   race_archive_directory: "/data/races"
+
+# NervesHub remote management (OTA firmware updates + remote console).
+#
+# Replaces the old Tailscale-for-remote-access setup: the device connects
+# *outbound* to a NervesHub instance, so it works through cellular NAT with no
+# VPN. Configured via env vars at build time and gated on them being present —
+# without them, NervesHubLink is disabled (`connect: false`) and the device
+# still boots normally.
+#
+# Provision a Product in NervesHub and set:
+#   NERVES_HUB_HOST            e.g. "your.nerveshub.host" (or NervesCloud host)
+#   NERVES_HUB_PRODUCT_KEY     from the Product's "Shared Secrets" settings
+#   NERVES_HUB_PRODUCT_SECRET  from the Product's "Shared Secrets" settings
+nerves_hub_host = System.get_env("NERVES_HUB_HOST")
+nerves_hub_product_key = System.get_env("NERVES_HUB_PRODUCT_KEY")
+nerves_hub_product_secret = System.get_env("NERVES_HUB_PRODUCT_SECRET")
+
+if nerves_hub_host && nerves_hub_product_key && nerves_hub_product_secret do
+  config :nerves_hub_link,
+    connect: true,
+    host: nerves_hub_host,
+    shared_secret: [
+      product_key: nerves_hub_product_key,
+      product_secret: nerves_hub_product_secret
+    ]
+else
+  config :nerves_hub_link, connect: false
+end
 
 config :logger, level: :info
 

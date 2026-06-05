@@ -23,3 +23,6 @@ erl_crash.dump
 .DS_Store
 
 /tmp/
+
+# editor swap files
+*.swp
