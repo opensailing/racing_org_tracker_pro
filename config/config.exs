@@ -25,7 +25,9 @@ config :nautic_net_device,
 #   false (default, coexistence rollout) - send the legacy plaintext DataSet.
 #   true  (post per-device enforcement)  - drop the datagram (never send plaintext).
 # Mirrors the server's per-device `requires_secure_transport`.
-config :nautic_net_device, :require_secure_transport, false
+config :nautic_net_device,
+       :require_secure_transport,
+       System.get_env("REQUIRE_SECURE_TRANSPORT") == "true"
 
 # P9-job-6 secure-transport wiring. The SessionHolder is cheap and starts in EVERY
 # environment (the UDP send path + tests read it). The WSS ChannelClient and the
@@ -43,9 +45,35 @@ config :nautic_net_device, :require_secure_transport, false
 #                              the device is not yet claimed. Default false.
 #   :bulk_upload_enabled     - post-race signed bulk upload of finalized recordings.
 #                              Default false; flips on with the rest of the rollout.
-config :nautic_net_device, :secure_channel_enabled, false
-config :nautic_net_device, :secure_claim_on_boot, false
-config :nautic_net_device, :bulk_upload_enabled, false
+# A single switch turns on the secure-transport client surface (channel + boot
+# claim + bulk upload) so the rollout flips them together; `require_secure_transport`
+# above is the SEPARATE, later cutover that stops emitting plaintext. Unset -> false
+# (host/test + un-provisioned firmware stay dormant).
+secure_enabled? = System.get_env("SECURE_TRANSPORT_ENABLED") == "true"
+config :nautic_net_device, :secure_channel_enabled, secure_enabled?
+config :nautic_net_device, :secure_claim_on_boot, secure_enabled?
+config :nautic_net_device, :bulk_upload_enabled, secure_enabled?
+
+# Provisioning values read from the BUILD-HOST environment at firmware-compile time
+# (same mechanism as API_ENDPOINT above) and baked into the image. Unset (host/test
+# or un-provisioned firmware) -> nil, and the secure-transport modules treat
+# themselves as unconfigured and stay dormant: ServerIdentity is unpinned (the
+# initiator won't connect) and BootProvisioner finds no claim inputs (never claims).
+# See docs/SECURE_TRANSPORT_REFLASH.md.
+#   SECURE_TRANSPORT_SERVER_PUBLIC_KEY - the server's pinned Ed25519 public key
+#       (raw 32 bytes or 64-char hex); the initiator verifies the HELLO signature
+#       against it (no PKI).
+#   CLAIM_TOKEN_SECRET / CLAIM_TOKEN_SERVER_NONCE - the {secret, base64(nonce)}
+#       bundle from the server's claim-token mint, used ONCE at first boot to claim
+#       this device to its owner account.
+config :nautic_net_device, NauticNet.SecureTransport.ServerIdentity,
+  public_key: System.get_env("SECURE_TRANSPORT_SERVER_PUBLIC_KEY")
+
+config :nautic_net_device, NauticNet.SecureTransport.ClaimClient,
+  claim_token_secret: System.get_env("CLAIM_TOKEN_SECRET")
+
+config :nautic_net_device, NauticNet.SecureTransport.BootProvisioner,
+  server_nonce: System.get_env("CLAIM_TOKEN_SERVER_NONCE")
 
 # Data upload filter modes:
 # :permissive - Allow data to be uploaded by any sensor for a data type

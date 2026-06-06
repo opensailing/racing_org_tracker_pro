@@ -55,6 +55,21 @@ defmodule NauticNet.SecureTransport.ChannelClientTest do
       Process.sleep(50)
       assert Process.alive?(pid)
     end
+
+    test "idle client polls :recheck and reschedules without crashing", %{base: base} do
+      # Provisioning can complete after boot (BootProvisioner is async), so an idle
+      # client must keep re-checking connectable?/1 rather than idle forever. With a
+      # tiny recheck interval, several timers fire; auto_connect? stays false so it
+      # reschedules each time and never connects/crashes.
+      pid =
+        start_supervised!(
+          {ChannelClient,
+           name: nil, auto_connect?: false, recheck_ms: 15, keystore_opts: [base_path: base]}
+        )
+
+      Process.sleep(80)
+      assert Process.alive?(pid)
+    end
   end
 
   # --- socket-layer smoke test (conceptual server) ---

@@ -130,8 +130,12 @@ defmodule NauticNet.SecureTransport.ChannelClient do
     if auto_connect?(opts) do
       {:ok, socket, {:continue, :connect}}
     else
-      Logger.info("[ChannelClient] not configured to connect; staying idle")
-      {:ok, socket}
+      Logger.info(
+        "[ChannelClient] not yet provisioned (unclaimed / no identity / no pinned " <>
+          "server key); will re-check until ready"
+      )
+
+      {:ok, schedule_recheck(socket)}
     end
   end
 
@@ -251,6 +255,20 @@ defmodule NauticNet.SecureTransport.ChannelClient do
     {:noreply, socket, {:continue, :connect}}
   end
 
+  # Provisioning can complete AFTER boot: BootProvisioner generates the device
+  # identity + claims asynchronously, and an operator may provision later. When we
+  # started idle, poll connectable?/1 and connect the moment the device is claimed +
+  # identity-provisioned + server-pinned, so a fresh device needs no reboot to come
+  # online.
+  def handle_info(:recheck, socket) do
+    if auto_connect?(socket.assigns.opts) do
+      Logger.info("[ChannelClient] now provisioned; connecting")
+      {:noreply, socket, {:continue, :connect}}
+    else
+      {:noreply, schedule_recheck(socket)}
+    end
+  end
+
   def handle_info(_msg, socket), do: {:noreply, socket}
 
   # --- internal ---
@@ -274,6 +292,14 @@ defmodule NauticNet.SecureTransport.ChannelClient do
     Logger.info("[ChannelClient] reconnect ##{attempt + 1} in #{delay}ms")
     Process.send_after(self(), :reconnect, delay)
     assign(socket, :attempt, attempt + 1)
+  end
+
+  # Fixed-interval poll used only while idle-waiting for provisioning to complete
+  # (distinct from the jittered reconnect backoff above). Configurable for tests.
+  defp schedule_recheck(socket) do
+    ms = Keyword.get(socket.assigns.opts, :recheck_ms, 15_000)
+    Process.send_after(self(), :recheck, ms)
+    socket
   end
 
   defp command_id(payload) do

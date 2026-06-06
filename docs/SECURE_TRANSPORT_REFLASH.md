@@ -120,49 +120,63 @@ logged-in web UI / a session-cookied client, the JSON response is:
 
 ---
 
-## 2. Device prep — environment the operator sets
+## 2. Device prep — build-host environment (baked into firmware)
 
-These keys are read at runtime by the device firmware. Set them where YOU manage the
-deployment environment for the target (the `.envrc` the firmware build reads, the
-target config you maintain, or the device's writable `/data` provisioning) — this
-runbook does NOT modify `config/target.exs` or `.envrc-example`; it documents the
-keys you wire into them.
+`config/config.exs` reads the values below from the **build-host environment at
+firmware-compile time** (the same mechanism as the existing `API_ENDPOINT` /
+`UDP_ENDPOINT`), so they are baked into the image. You do NOT edit `config/target.exs`
+or set anything on the running device — you `export` them in the shell that runs
+`mix firmware`. Any value left unset is `nil`/`false`, which leaves the
+secure-transport stack dormant (the safe default: `ServerIdentity` unpinned →
+`ChannelClient` won't connect; `BootProvisioner` finds no claim inputs).
 
-| Env var | Maps to (device config) | Purpose |
+Provisioning values:
+
+| Env var | Maps to (wired in config.exs) | Purpose |
 |---|---|---|
-| `SECURE_TRANSPORT_SERVER_PUBLIC_KEY` | `:nautic_net_device, ServerIdentity, public_key:` | The server pubkey from §1.2 (64-char hex). The device's server-trust anchor. |
-| `CLAIM_TOKEN_SECRET` | `:nautic_net_device, ClaimClient, claim_token_secret:` | The `claim_token` secret from §1.4. |
-| `CLAIM_TOKEN_SERVER_NONCE` | `:nautic_net_device, BootProvisioner, server_nonce:` | The `server_nonce` (base64) from §1.4. |
-| `SECURE_TRANSPORT_WS_URL` (optional) | read directly by `ChannelClient` | Override the WSS channel URL. Default is derived from `API_ENDPOINT` (`https`→`wss`, path `/device_socket/websocket`). |
-| `API_ENDPOINT` | `:nautic_net_device, :api_endpoint` | Server HTTPS base (claim + bulk upload, and WS derivation). |
-| `UDP_ENDPOINT` | `:nautic_net_device, :udp_endpoint` | Server UDP host:port for telemetry. |
+| `SECURE_TRANSPORT_SERVER_PUBLIC_KEY` | `ServerIdentity, public_key:` | The server pubkey from §1.2 (64-char hex or raw 32 bytes). The device's server-trust anchor. |
+| `CLAIM_TOKEN_SECRET` | `ClaimClient, claim_token_secret:` | The `claim_token` secret from §1.4. |
+| `CLAIM_TOKEN_SERVER_NONCE` | `BootProvisioner, server_nonce:` | The `server_nonce` (base64) from §1.4. |
+| `API_ENDPOINT` | `:api_endpoint` | Server HTTPS base (claim + bulk upload, and WS derivation). |
+| `UDP_ENDPOINT` | `:udp_endpoint` | Server UDP host:port for telemetry. |
+| `SECURE_TRANSPORT_WS_URL` (optional) | read directly by `ChannelClient` | Override the WSS channel URL. Default derives from `API_ENDPOINT` (`https`→`wss`, path `/device_socket/websocket`). |
 
-And the rollout/gating flags (set in the environment/target config; defaults in
-`config/config.exs` are all the safe values):
+Rollout switches (also build-host env, read by config.exs; unset = the safe default):
 
-| Config key | Set to (initial) | Effect |
+| Env var | Set to (initial) | Effect |
 |---|---|---|
-| `:nautic_net_device, :secure_claim_on_boot` | `true` | Start the one-shot `BootProvisioner` (target only) so the device claims itself on boot. |
-| `:nautic_net_device, :secure_channel_enabled` | `true` | Start the WSS `ChannelClient` + `BulkUploader` (target only). |
-| `:nautic_net_device, :bulk_upload_enabled` | `true` | Enable the post-race signed bulk upload trigger. |
-| `:nautic_net_device, :require_secure_transport` | `false` **(initially)** | Device-side plaintext kill switch. Keep `false` until the enforcement flip (§4). |
+| `SECURE_TRANSPORT_ENABLED` | `true` | Single switch that drives `:secure_claim_on_boot` + `:secure_channel_enabled` + `:bulk_upload_enabled`: starts the boot claim, the WSS `ChannelClient`, and the post-race `BulkUploader` (all target-only). |
+| `REQUIRE_SECURE_TRANSPORT` | unset / `false` **(initially)** | Device-side plaintext kill switch (`:require_secure_transport`). Leave OFF until the enforcement flip (§4). |
 
-> The `BootProvisioner` and `ChannelClient` only start on a real device target
-> (`MIX_TARGET` != `host`) AND when their enabled flags are true, matching how
-> NervesHubLink / the UDP path are gated. `SessionHolder` starts in every
-> environment (cheap, idle). Even when started, `ChannelClient` self-gates idle until
-> claimed + identity provisioned + server pinned, so order of provisioning is
-> forgiving.
+> The `BootProvisioner` / `ChannelClient` / `BulkUploader` start only on a real device
+> target (`MIX_TARGET` != `host`) AND when `SECURE_TRANSPORT_ENABLED=true`, matching how
+> NervesHubLink / the UDP path are gated. `SessionHolder` starts in every environment
+> (cheap, idle). Even when started, `ChannelClient` self-gates idle until claimed +
+> identity provisioned + server pinned, so the order of provisioning is forgiving.
 
 ### 2.1 Reflash the firmware
 
-Build + flash the secure-transport firmware with the environment above set, e.g.:
+Export the environment, then build + flash, all in the same shell:
 
 ```sh
-# Example; use your normal Nerves build/flash flow with the env wired in.
+export API_ENDPOINT="https://sailroute-backend.fly.dev"      # your server base
+export UDP_ENDPOINT="sailroute-backend.fly.dev:4001"
+export PRODUCT="logger"
+export SECURE_TRANSPORT_SERVER_PUBLIC_KEY="<64-char hex from §1.2>"
+export CLAIM_TOKEN_SECRET="<claim_token secret from §1.4>"
+export CLAIM_TOKEN_SERVER_NONCE="<base64 server_nonce from §1.4>"
+export SECURE_TRANSPORT_ENABLED=true        # turn on claim + channel + bulk
+# REQUIRE_SECURE_TRANSPORT stays unset until the §4 cutover
+
 MIX_TARGET=<target> mix firmware
-MIX_TARGET=<target> mix burn      # or: fwup / NervesHub OTA push
+MIX_TARGET=<target> mix burn                # or: fwup / NervesHub OTA push
 ```
+
+> Because the claim token + nonce are baked into this image and the claim is
+> SINGLE-USE, this firmware claims exactly ONE device on first boot (reflashing a
+> second device with the same image will fail `:invalid_claim_token`). For a fleet,
+> provision per-device out of band — the documented NervesKey / `/data` seam — instead
+> of baking a shared token.
 
 ### 2.2 What the device does on boot (automatic)
 
@@ -259,12 +273,16 @@ Confirm: device sending AEAD (§3.4), channel session healthy (§3.3), claim row
 (§3.1). Keep both `require_secure_transport` flags OFF at this point.
 
 ### Step B — Turn OFF device plaintext (DEVICE first)
-Set the DEVICE flag and reboot/redeploy that device:
+Rebuild + reflash the device firmware with the kill switch on. It is compile-time
+baked (like the rest of §2), so this is a firmware rebuild — not a live toggle:
 
-```
-config :nautic_net_device, :require_secure_transport, true
+```sh
+export REQUIRE_SECURE_TRANSPORT=true        # plus the same §2.1 env
+MIX_TARGET=<target> mix firmware
+MIX_TARGET=<target> mix burn                # or NervesHub OTA push
 ```
 
+(Equivalently, hardcode `config :nautic_net_device, :require_secure_transport, true`.)
 Now the device NEVER emits plaintext: with a live session it sends AEAD; with no live
 session it DROPS the datagram (it does not leak plaintext). Re-confirm §3.4 — telemetry
 keeps flowing (as AEAD). The server still ACCEPTS plaintext at this point, so there is
@@ -290,8 +308,9 @@ From now on, a plaintext datagram attributable to this device is rejected
 1. **Server first**: set the device's `requires_secure_transport` back to `false`
    (`SailRoute.Devices.update_device(dev, %{requires_secure_transport: false})`). The
    server again accepts plaintext from it.
-2. **Device second**: set `:nautic_net_device, :require_secure_transport` back to
-   `false` and redeploy. The device resumes plaintext fallback when no session is live.
+2. **Device second**: rebuild + reflash with `REQUIRE_SECURE_TRANSPORT` unset (or
+   `config :nautic_net_device, :require_secure_transport, false`). The device resumes
+   plaintext fallback when no session is live.
 
 Reversing the order (device-first on rollback) would, for the window in between, leave
 a device emitting plaintext while the server still rejects it — telemetry loss. Always
