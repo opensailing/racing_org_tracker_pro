@@ -19,6 +19,14 @@ config :nautic_net_device,
   replay_log: System.get_env("REPLAY_LOG"),
   git_commit: git_commit
 
+# P9-job-4 AEAD UDP telemetry gate. When a live SecureTransport session exists,
+# telemetry DataSets are sealed into AEAD frames; otherwise this flag decides the
+# no-session fallback:
+#   false (default, coexistence rollout) - send the legacy plaintext DataSet.
+#   true  (post per-device enforcement)  - drop the datagram (never send plaintext).
+# Mirrors the server's per-device `requires_secure_transport`.
+config :nautic_net_device, :require_secure_transport, false
+
 # Data upload filter modes:
 # :permissive - Allow data to be uploaded by any sensor for a data type
 # :strict - Only allow data to be uploaded if a sensor is selected -- via a filter -- for the data type

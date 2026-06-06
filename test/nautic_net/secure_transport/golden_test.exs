@@ -93,5 +93,23 @@ defmodule NauticNet.SecureTransport.GoldenTest do
 
     # And the responder opens the golden frame back to the plaintext.
     assert {:ok, ^plaintext, _} = Frame.open(ssession, hex(outputs["data_frame"]))
+
+    # P9-job-4: the STATELESS seal (the form the SessionHolder grant feeds the UDP
+    # path) reproduces the SAME golden bytes from the explicit grant values, proving
+    # byte-identity with `seal/2` and with the server's expected layout.
+    assert {:ok, stateless_frame} =
+             Frame.seal_with(
+               dsession.session_id,
+               dsession.epoch,
+               inputs["frame_counter"],
+               dsession.out_key,
+               plaintext
+             )
+
+    assert Base.encode16(stateless_frame, case: :lower) == outputs["data_frame"]
+    assert stateless_frame == data_frame
+
+    # Loopback: the responder opens the statelessly-sealed frame back to plaintext.
+    assert {:ok, ^plaintext, _} = Frame.open(ssession, stateless_frame)
   end
 end

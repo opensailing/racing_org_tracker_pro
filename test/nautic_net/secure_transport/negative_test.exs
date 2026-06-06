@@ -383,4 +383,43 @@ defmodule NauticNet.SecureTransport.NegativeTest do
       assert {:error, :epoch_exhausted} = Frame.seal(bad, "x")
     end
   end
+
+  # P9-job-4: the stateless seal (explicit session_id/epoch/counter/key, no Session
+  # and no counter state). It is what the SessionHolder grant feeds the UDP path.
+  describe "stateless seal_with/5" do
+    test "round-trips byte-identically with the stateful seal/2", ctx do
+      {:ok, stateful, _} = Frame.seal(ctx.dsession, "round-trip")
+
+      {:ok, stateless} =
+        Frame.seal_with(
+          ctx.dsession.session_id,
+          ctx.dsession.epoch,
+          ctx.dsession.send_counter,
+          ctx.dsession.out_key,
+          "round-trip"
+        )
+
+      assert stateless == stateful
+      assert {:ok, "round-trip", _} = Frame.open(ctx.ssession, stateless)
+    end
+
+    test "mirrors the seal/2 ceiling + rekey guards", ctx do
+      sid = ctx.dsession.session_id
+      key = ctx.dsession.out_key
+
+      assert {:error, :epoch_exhausted} =
+               Frame.seal_with(sid, 0x1_0000_0000, 0, key, "x")
+
+      assert {:error, :counter_exhausted} =
+               Frame.seal_with(sid, ctx.dsession.epoch, ST.counter_max(), key, "x")
+
+      assert {:error, :rekey_required} =
+               Frame.seal_with(sid, ctx.dsession.epoch, ST.rekey_after(), key, "x")
+    end
+
+    test "an invalid out_key surfaces an AEAD error (no crash)", ctx do
+      assert {:error, :bad_key_length} =
+               Frame.seal_with(ctx.dsession.session_id, ctx.dsession.epoch, 0, <<0::8>>, "x")
+    end
+  end
 end

@@ -42,8 +42,39 @@ defmodule NauticNet.SecureTransport.Frame do
   def seal(%Session{} = session, plaintext) when is_binary(plaintext) do
     counter = session.send_counter
 
+    case seal_with(session.session_id, session.epoch, counter, session.out_key, plaintext) do
+      {:ok, frame} -> {:ok, frame, %{session | send_counter: counter + 1}}
+      {:error, _} = err -> err
+    end
+  end
+
+  @doc """
+  Stateless variant of `seal/2`: seal `plaintext` into a wire frame from the
+  EXPLICIT `(session_id, epoch, counter, out_key)` with NO `Session` and NO counter
+  management.
+
+  This is what the P9-job-4 UDP telemetry path uses. `NauticNet.SecureTransport.SessionHolder`
+  is the single owner of the send counter; it hands back a `(session_id, out_key,
+  epoch, counter)` grant via `take_send_counter/1`, and this function turns that
+  grant + the encoded DataSet into the wire frame. Because the counter is reserved
+  by the holder (never re-used), this function does not need — and must not have —
+  any mutable state, which is what makes concurrent sends safe by construction.
+
+  The produced bytes are BYTE-IDENTICAL to `seal/2` for the same inputs (the golden
+  DATA frame proves it): `header(35) || ciphertext || tag(16)`, nonce `epoch||counter`,
+  AAD = the full header, ChaCha20-Poly1305 under `out_key`.
+
+  Returns `{:ok, frame}`, or `{:error, reason}` on the same ceiling/rekey guards as
+  `seal/2` (`:epoch_exhausted`, `:counter_exhausted`, `:rekey_required`) or an AEAD
+  failure.
+  """
+  @spec seal_with(binary(), non_neg_integer(), non_neg_integer(), binary(), binary()) ::
+          {:ok, binary()} | {:error, atom()}
+  def seal_with(<<session_id::binary-size(16)>>, epoch, counter, out_key, plaintext)
+      when is_integer(epoch) and epoch >= 0 and is_integer(counter) and counter >= 0 and
+             is_binary(out_key) and is_binary(plaintext) do
     cond do
-      session.epoch > ST.epoch_max() ->
+      epoch > ST.epoch_max() ->
         {:error, :epoch_exhausted}
 
       counter >= ST.counter_max() ->
@@ -53,13 +84,12 @@ defmodule NauticNet.SecureTransport.Frame do
         {:error, :rekey_required}
 
       true ->
-        header = encode_header(session.session_id, session.epoch, counter)
-        nonce = nonce(session.epoch, counter)
+        header = encode_header(session_id, epoch, counter)
+        nonce = nonce(epoch, counter)
 
-        case Primitives.aead_seal(session.out_key, nonce, plaintext, header) do
+        case Primitives.aead_seal(out_key, nonce, plaintext, header) do
           {:ok, ct, tag} ->
-            frame = <<header::binary, ct::binary, tag::binary>>
-            {:ok, frame, %{session | send_counter: counter + 1}}
+            {:ok, <<header::binary, ct::binary, tag::binary>>}
 
           {:error, _} = err ->
             err
