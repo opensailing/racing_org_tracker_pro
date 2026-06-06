@@ -9,6 +9,12 @@ config :nautic_net_device, NauticNet.CAN, false
 config :nautic_net_device, NauticNet.Discovery, false
 config :nautic_net_device, NauticNet.Serial, false
 
+# Device-identity key store: never write to the target's /data path under test.
+# Tests pass an explicit per-test temp `:base_path`; this is a defensive default
+# so an unparameterized call cannot touch /data on a CI/host machine.
+config :nautic_net_device, NauticNet.SecureTransport.KeyStore,
+  base_path: Path.join(System.tmp_dir!(), "nautic_net_device_keystore_test")
+
 # The application boots an NMEA 2000 VirtualDevice as part of its supervision
 # tree. Give it the Fake driver so the tree starts without real CAN hardware.
 config :nmea, NMEA.VirtualDevice,
