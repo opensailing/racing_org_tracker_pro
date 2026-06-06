@@ -17,26 +17,31 @@ defmodule NauticNet.Race.ArchiveTest do
     %{base: base}
   end
 
-  defp start_archive(base) do
+  defp start_archive(base, opts \\ []) do
     test_pid = self()
     commands = start_supervised!({Commands, device_id: "dev"})
 
     archive =
       start_supervised!(
         {Archive,
-         base_dir: base,
-         commands: commands,
-         device_id: "dev",
-         enqueue_fn: fn binary -> send(test_pid, {:enqueued, binary}) end,
-         now_fn: fn -> ~U[2026-06-03 12:00:00Z] end,
-         name: nil}
+         [
+           base_dir: base,
+           commands: commands,
+           device_id: "dev",
+           enqueue_fn: fn binary -> send(test_pid, {:enqueued, binary}) end,
+           now_fn: fn -> ~U[2026-06-03 12:00:00Z] end,
+           name: nil
+         ] ++ opts}
       )
 
     %{commands: commands, archive: archive}
   end
 
-  defp assign(commands, recording_id) do
-    race = RaceAssignment.new(race_recording_id: recording_id, route_hash: "rh")
+  defp assign(commands, recording_id, attrs) do
+    race =
+      RaceAssignment.new(
+        [race_recording_id: recording_id, route_hash: "rh"] ++ attrs
+      )
 
     command =
       DeviceCommand.new(
@@ -53,8 +58,8 @@ defmodule NauticNet.Race.ArchiveTest do
 
   defp ds(i), do: DataSet.encode(DataSet.new(boat_identifier: "b", counter: i))
 
-  defp race(archive, commands, recording_id, samples) do
-    assign(commands, recording_id)
+  defp race(archive, commands, recording_id, samples, assign_attrs \\ []) do
+    assign(commands, recording_id, assign_attrs)
     send(archive, {:sampling_phase, :idle, :racing})
     for i <- samples, do: Archive.record(archive, ds(i))
   end
@@ -123,6 +128,44 @@ defmodule NauticNet.Race.ArchiveTest do
     assert_receive {:enqueued, resent2}
     counters = Enum.map([resent1, resent2], &DataSet.decode(&1).counter)
     assert Enum.sort(counters) == [1, 2]
+  end
+
+  test "triggers a post-race bulk upload with the recording id + race_session_id", %{base: base} do
+    test_pid = self()
+
+    %{commands: c, archive: a} =
+      start_archive(base,
+        bulk_upload_fn: fn opts -> send(test_pid, {:bulk_upload, opts}) end
+      )
+
+    race(a, c, "2026-06-03-7", [1, 2], race_session_id: "sess-abc")
+    send(a, {:sampling_phase, :finish, :complete})
+
+    assert_receive {:bulk_upload, opts}
+    assert opts[:base_dir] == base
+    assert opts[:recording_id] == "2026-06-03-7"
+    assert opts[:race_session_id] == "sess-abc"
+
+    # The recording is still kept on disk (deletion waits for the server's
+    # manifest_verification_result command, not the bulk upload trigger).
+    assert "2026-06-03-7" in Recording.list(base)
+  end
+
+  test "skips the bulk upload when the assignment has no race_session_id", %{base: base} do
+    test_pid = self()
+
+    %{commands: c, archive: a} =
+      start_archive(base,
+        bulk_upload_fn: fn opts -> send(test_pid, {:bulk_upload, opts}) end
+      )
+
+    race(a, c, "2026-06-03-7", [1])
+    send(a, {:sampling_phase, :finish, :complete})
+
+    # The legacy UDP manifest still goes out...
+    assert_receive {:enqueued, _manifest}
+    # ...but no bulk upload is triggered without a session id to route it.
+    refute_receive {:bulk_upload, _opts}
   end
 
   test "recovers and finalizes an in-progress recording left by a power loss", %{base: base} do

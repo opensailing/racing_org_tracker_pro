@@ -27,6 +27,26 @@ config :nautic_net_device,
 # Mirrors the server's per-device `requires_secure_transport`.
 config :nautic_net_device, :require_secure_transport, false
 
+# P9-job-6 secure-transport wiring. The SessionHolder is cheap and starts in EVERY
+# environment (the UDP send path + tests read it). The WSS ChannelClient and the
+# boot-time claim provisioner are gated to the real device target AND require an
+# explicit enabled flag; on host/test they never start. The ChannelClient
+# additionally self-gates in `init` (idle unless claimed + identity provisioned +
+# server pinned) so even when enabled it is safe to start before provisioning.
+#
+#   :secure_channel_enabled  - start the WSS ChannelClient (target-only). Default
+#                              false; target.exs/runtime sets it true once secure
+#                              transport is being rolled out.
+#   :secure_claim_on_boot    - run the one-shot boot claim provisioner (target-only)
+#                              that generates the device identity and claims it when
+#                              a claim token secret + server_nonce are configured and
+#                              the device is not yet claimed. Default false.
+#   :bulk_upload_enabled     - post-race signed bulk upload of finalized recordings.
+#                              Default false; flips on with the rest of the rollout.
+config :nautic_net_device, :secure_channel_enabled, false
+config :nautic_net_device, :secure_claim_on_boot, false
+config :nautic_net_device, :bulk_upload_enabled, false
+
 # Data upload filter modes:
 # :permissive - Allow data to be uploaded by any sensor for a data type
 # :strict - Only allow data to be uploaded if a sensor is selected -- via a filter -- for the data type

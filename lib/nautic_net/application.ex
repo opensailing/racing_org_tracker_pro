@@ -50,7 +50,7 @@ defmodule NauticNet.Application do
   end
 
   # Product: NMEA 2000 standalone, on-board device
-  defp children(:logger, _target) do
+  defp children(:logger, target) do
     [
       commands_child(),
       NauticNet.Telemetry,
@@ -58,22 +58,74 @@ defmodule NauticNet.Application do
       archive_child(),
       {NauticNet.Nav.Broadcaster, name: NauticNet.Nav.Broadcaster},
       {NauticNet.Serial, serial_config()},
+      # SessionHolder BEFORE the UDP send path + ChannelClient: the UDP path reads
+      # the live session from the holder, and the ChannelClient publishes into it.
+      NauticNet.SecureTransport.SessionHolder,
       {NauticNet.WebClients.UDPClient, udp_config()},
       {NauticNet.DataSetRecorder, chunk_every: @max_unfragmented_udp_payload_size},
       {NauticNet.DataSetUploader, via: :udp}
-    ]
+    ] ++ secure_transport_children(target)
   end
 
   # Product: Base station receiver node for nautic_net_tracker_mini
-  defp children(:uplink, _target) do
+  defp children(:uplink, target) do
     [
       commands_child(),
+      NauticNet.SecureTransport.SessionHolder,
       {NauticNet.WebClients.UDPClient, udp_config()},
       {NauticNet.DataSetRecorder, chunk_every: @max_unfragmented_udp_payload_size},
       {NauticNet.DataSetUploader, via: :udp},
       NauticNet.BaseStation
-    ]
+    ] ++ secure_transport_children(target)
   end
+
+  # P9-job-6 secure-transport children, appended after the network/HTTP deps they
+  # rely on. The SessionHolder is started inline above (it runs in EVERY environment:
+  # the UDP send path + tests read it, and it is idle/cheap with no session). These
+  # extra children are config + target gated:
+  #
+  #   * BootProvisioner — one-shot boot claim (target + :secure_claim_on_boot). It
+  #     generates the device identity and claims it, which is what makes the
+  #     ChannelClient connectable.
+  #   * ChannelClient — outbound WSS command channel (target + :secure_channel_enabled).
+  #     It additionally SELF-GATES in init (idle unless claimed + identity provisioned
+  #     + server pinned), so it is safe even if started before provisioning.
+  #   * BulkUploader — thin GenServer giving `upload_async/2` a named server for the
+  #     Archive's post-race trigger. Cheap + idle; started whenever the channel is
+  #     enabled (the same rollout flag).
+  #
+  # Ordering: BootProvisioner (claims) → ChannelClient (connects/handshakes) →
+  # BulkUploader, all AFTER SessionHolder.
+  defp secure_transport_children(target) do
+    boot = if claim_on_boot?(target), do: [NauticNet.SecureTransport.BootProvisioner], else: []
+
+    channel =
+      if secure_channel_enabled?(target) do
+        [
+          NauticNet.SecureTransport.ChannelClient,
+          NauticNet.Race.BulkUploader
+        ]
+      else
+        []
+      end
+
+    boot ++ channel
+  end
+
+  # Real device target only (mirrors how NervesHubLink/the UDP/secure paths gate),
+  # AND the rollout enabled flag (default false in config.exs).
+  defp secure_channel_enabled?(target) do
+    real_target?(target) and Application.get_env(:nautic_net_device, :secure_channel_enabled, false) == true
+  end
+
+  defp claim_on_boot?(target) do
+    real_target?(target) and Application.get_env(:nautic_net_device, :secure_claim_on_boot, false) == true
+  end
+
+  defp real_target?(:host), do: false
+  defp real_target?(:""), do: false
+  defp real_target?(nil), do: false
+  defp real_target?(_target), do: true
 
   # Receives, validates, and de-duplicates SailRoute server commands arriving on
   # the device-initiated UDP socket.
