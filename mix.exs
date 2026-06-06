@@ -52,6 +52,13 @@ defmodule NauticNet.Device.MixProject do
       {:nerves_hub_link, "~> 2.12", targets: @all_device_targets},
       {:castore, "~> 1.0", targets: @all_device_targets},
 
+      # Slipstream powers the device's outbound, CGNAT-friendly WSS command
+      # channel to SailRoute (NauticNet.SecureTransport.ChannelClient). It is
+      # already resolved transitively via :nerves_hub_link (1.2.2 in mix.lock);
+      # depend on it explicitly (and on all targets, so host tests can drive the
+      # channel logic) and pin it to the resolved minor.
+      {:slipstream, "~> 1.2"},
+
       # CANUSB serial communication
       {:circuits_uart, "~> 1.5"},
 
