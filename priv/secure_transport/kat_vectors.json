@@ -1,0 +1,95 @@
+{
+  "_about": "Language-neutral Known-Answer-Test vectors for SailRoute.SecureTransport. All values are lowercase hex. Reusable by the device firmware repo (OTP 28) to cross-check its implementation. Sourced verbatim from the cited RFCs and empirically reproduced via Erlang/OTP :crypto on OTP 27.",
+  "_spec": "docs/SECURE_TRANSPORT.md",
+  "hkdf_sha256": {
+    "_source": "RFC 5869 Appendix A.1, A.2, A.3",
+    "cases": [
+      {
+        "name": "RFC5869 Test Case 1",
+        "ikm": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+        "salt": "000102030405060708090a0b0c",
+        "info": "f0f1f2f3f4f5f6f7f8f9",
+        "length": 42,
+        "prk": "077709362c2e32df0ddc3f0dc47bba6390b6c73bb50f9c3122ec844ad7c2b3e5",
+        "okm": "3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf34007208d5b887185865"
+      },
+      {
+        "name": "RFC5869 Test Case 2",
+        "ikm": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f",
+        "salt": "606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
+        "info": "b0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff",
+        "length": 82,
+        "prk": "06a6b88c5853361a06104c9ceb35b45cef760014904671014a193f40c15fc244",
+        "okm": "b11e398dc80327a1c8e7f78c596a49344f012eda2d4efad8a050cc4c19afa97c59045a99cac7827271cb41c65e590e09da3275600c2f09b8367793a9aca3db71cc30c58179ec3e87c14c01d5c1f3434f1d87"
+      },
+      {
+        "name": "RFC5869 Test Case 3 (empty salt and info)",
+        "ikm": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+        "salt": "",
+        "info": "",
+        "length": 42,
+        "prk": "19ef24a32c717b167f33a91d6f648bdf96596776afdb6377ac434c1c293ccb04",
+        "okm": "8da4e775a563c18f715f802a063c5a31b8a11f5c5ee1879ec3454e5f3c738d2d9d201395faa4b61a96c8"
+      }
+    ]
+  },
+  "ed25519": {
+    "_source": "RFC 8032 Section 7.1 (TEST 1, 2, 3)",
+    "_note": "secret is the 32-byte seed; public is derived from it; signature is over message.",
+    "cases": [
+      {
+        "name": "RFC8032 TEST 1 (empty message)",
+        "secret": "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
+        "public": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+        "message": "",
+        "signature": "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b"
+      },
+      {
+        "name": "RFC8032 TEST 2 (1-byte message)",
+        "secret": "4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb",
+        "public": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "message": "72",
+        "signature": "92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00"
+      },
+      {
+        "name": "RFC8032 TEST 3 (2-byte message)",
+        "secret": "c5aa8df43f9f837bedb7442f31dcb7b166d38535076f094b85ce3a2e0b4458f7",
+        "public": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "message": "af82",
+        "signature": "6291d657deec24024827e69c3abe01a30ce548a284743a445e3680d7db5ac3ac18ff9b538d16f290ae67f760984dc6594a7c15e9716ed28dc027beceea1ec40a"
+      }
+    ]
+  },
+  "x25519": {
+    "_source": "RFC 7748 Section 5.2",
+    "_note": "compute_key(:ecdh, u_coordinate, scalar, :x25519) == output. OTP clamps the scalar internally.",
+    "cases": [
+      {
+        "name": "RFC7748 vector 1",
+        "scalar": "a546e36bf0527c9d3b16154b82465edd62144c0ac1fc5a18506a2244ba449ac4",
+        "u": "e6db6867583030db3594c1a424b15f7c726624ec26b3353b10a903a6d0ab1c4c",
+        "output": "c3da55379de9c6908e94ea4df28d084f32eccf03491c71f754b4075577a28552"
+      },
+      {
+        "name": "RFC7748 vector 2",
+        "scalar": "4b66e9d4d1b4673c5ad22691957d6af5c11b6421e0ea01d42ca4169e7918ba0d",
+        "u": "e5210f12786811d3f4b7959d0538ae2c31dbe7106fc03c3efc4cd549c715a493",
+        "output": "95cbde9476e8907d7aade45cb4b873f88b595a68799fa152e6f8f7647aac7957"
+      }
+    ]
+  },
+  "chacha20_poly1305": {
+    "_source": "RFC 8439 Section 2.8.2",
+    "cases": [
+      {
+        "name": "RFC8439 2.8.2 AEAD",
+        "key": "808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f",
+        "nonce": "070000004041424344454647",
+        "aad": "50515253c0c1c2c3c4c5c6c7",
+        "plaintext_utf8": "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.",
+        "ciphertext": "d31a8d34648e60db7b86afbc53ef7ec2a4aded51296e08fea9e2b5a736ee62d63dbea45e8ca9671282fafb69da92728b1a71de0a9e060b2905d6a5b67ecd3b3692ddbd7f2d778b8c9803aee328091b58fab324e4fad675945585808b4831d7bc3ff4def08e4b7a9de576d26586cec64b6116",
+        "tag": "1ae10b594f09e26a7e902ecbd0600691"
+      }
+    ]
+  }
+}
