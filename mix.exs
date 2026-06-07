@@ -124,15 +124,17 @@ defmodule NauticNet.Device.MixProject do
   # at a local checkout with NAUTIC_NET_SYSTEM_PATH for system development;
   # otherwise pull the OTP 28 branch from GitHub.
   defp nautic_net_system_dep do
-    # `nerves: [compile: true]` forces the system to be built from source (there
-    # is no prebuilt artifact published for this fork).
-    opts = [runtime: false, targets: :nautic_net_rpi3, nerves: [compile: true]]
+    base = [runtime: false, targets: :nautic_net_rpi3]
 
     if path = System.get_env("NAUTIC_NET_SYSTEM_PATH") do
-      {:nautic_net_system_rpi3, [path: path] ++ opts}
+      # Local system development: build the local source from scratch.
+      {:nautic_net_system_rpi3, [path: path, nerves: [compile: true]] ++ base}
     else
+      # Normal build: download the PREBUILT artifact from the fork's GitHub
+      # releases (artifact_sites {:github_releases, ...} -> the v<version> release).
+      # No local Buildroot build and no case-sensitive volume needed.
       {:nautic_net_system_rpi3,
-       [git: "git@github.com:opensailing/nautic_net_system_rpi3.git", branch: "otp28-upgrade"] ++ opts}
+       [git: "git@github.com:opensailing/nautic_net_system_rpi3.git", branch: "otp28-upgrade"] ++ base}
     end
   end
 
