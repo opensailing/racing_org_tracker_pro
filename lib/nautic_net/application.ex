@@ -84,8 +84,9 @@ defmodule NauticNet.Application do
   # the UDP send path + tests read it, and it is idle/cheap with no session). These
   # extra children are config + target gated:
   #
-  #   * BootProvisioner — one-shot boot claim (target + :secure_claim_on_boot). It
-  #     generates the device identity and claims it, which is what makes the
+  #   * BootProvisioner — one-shot boot self-registration (target +
+  #     :secure_register_on_boot). It generates the device identity and tokenlessly
+  #     registers it with the server, which (once an admin associates it) makes the
   #     ChannelClient connectable.
   #   * ChannelClient — outbound WSS command channel (target + :secure_channel_enabled).
   #     It additionally SELF-GATES in init (idle unless claimed + identity provisioned
@@ -94,10 +95,10 @@ defmodule NauticNet.Application do
   #     Archive's post-race trigger. Cheap + idle; started whenever the channel is
   #     enabled (the same rollout flag).
   #
-  # Ordering: BootProvisioner (claims) → ChannelClient (connects/handshakes) →
+  # Ordering: BootProvisioner (registers) → ChannelClient (connects/handshakes) →
   # BulkUploader, all AFTER SessionHolder.
   defp secure_transport_children(target) do
-    boot = if claim_on_boot?(target), do: [NauticNet.SecureTransport.BootProvisioner], else: []
+    boot = if register_on_boot?(target), do: [NauticNet.SecureTransport.BootProvisioner], else: []
 
     channel =
       if secure_channel_enabled?(target) do
@@ -118,8 +119,9 @@ defmodule NauticNet.Application do
     real_target?(target) and Application.get_env(:nautic_net_device, :secure_channel_enabled, false) == true
   end
 
-  defp claim_on_boot?(target) do
-    real_target?(target) and Application.get_env(:nautic_net_device, :secure_claim_on_boot, false) == true
+  defp register_on_boot?(target) do
+    real_target?(target) and
+      Application.get_env(:nautic_net_device, :secure_register_on_boot, false) == true
   end
 
   defp real_target?(:host), do: false

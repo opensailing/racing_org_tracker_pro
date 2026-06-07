@@ -47,7 +47,7 @@ defmodule NauticNet.SecureTransport.ChannelClient do
   ## Gating (job-6 wires this into the supervision tree)
 
   `start_link/1` always succeeds and the process is safe to run "not configured":
-  if the device is not on a real target, is unclaimed, has no identity, or has no
+  if the device is not on a real target, is unregistered, has no identity, or has no
   pinned server key, the client stays IDLE (it never attempts to connect and never
   crash-loops). It only connects when `connectable?/1` is true. The child spec is
   exposed but NOT added to `application.ex` here.
@@ -103,12 +103,12 @@ defmodule NauticNet.SecureTransport.ChannelClient do
 
   @doc """
   Whether the device is currently configured to connect: a real device target AND
-  claimed AND a provisioned identity AND a pinned server public key. Host/test and
-  unclaimed/unprovisioned devices return `false` (the client stays idle).
+  registered AND a provisioned identity AND a pinned server public key. Host/test and
+  unregistered/unprovisioned devices return `false` (the client stays idle).
   """
   @spec connectable?(keyword()) :: boolean()
   def connectable?(opts \\ []) do
-    device_target?() and claimed?(opts) and has_identity?(opts) and ServerIdentity.configured?()
+    device_target?() and registered?(opts) and has_identity?(opts) and ServerIdentity.configured?()
   end
 
   # --- Slipstream callbacks ---
@@ -131,7 +131,7 @@ defmodule NauticNet.SecureTransport.ChannelClient do
       {:ok, socket, {:continue, :connect}}
     else
       Logger.info(
-        "[ChannelClient] not yet provisioned (unclaimed / no identity / no pinned " <>
+        "[ChannelClient] not yet provisioned (unregistered / no identity / no pinned " <>
           "server key); will re-check until ready"
       )
 
@@ -256,8 +256,8 @@ defmodule NauticNet.SecureTransport.ChannelClient do
   end
 
   # Provisioning can complete AFTER boot: BootProvisioner generates the device
-  # identity + claims asynchronously, and an operator may provision later. When we
-  # started idle, poll connectable?/1 and connect the moment the device is claimed +
+  # identity + registers asynchronously, and an admin may associate it later. When we
+  # started idle, poll connectable?/1 and connect the moment the device is registered +
   # identity-provisioned + server-pinned, so a fresh device needs no reboot to come
   # online.
   def handle_info(:recheck, socket) do
@@ -430,8 +430,8 @@ defmodule NauticNet.SecureTransport.ChannelClient do
     end
   end
 
-  defp claimed?(opts) do
-    NauticNet.SecureTransport.ClaimClient.claimed?(keystore_opts(opts))
+  defp registered?(opts) do
+    NauticNet.SecureTransport.BootProvisioner.registered?(keystore_opts(opts))
   end
 
   defp has_identity?(opts) do

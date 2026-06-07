@@ -12,7 +12,12 @@ the supervision tree, and the post-race `BulkUploader` trigger from
 > Terminology: "device" = the Nerves firmware in `nautic_net_device`; "server" =
 > SailRoute (`backend`, deployed on Fly). All crypto is Ed25519 + ChaCha20-Poly1305;
 > there is no PKI — the device PINS the server's public key and the server records
-> the device's claimed public key (a `DeviceKey`).
+> the device's self-registered public key (a `DeviceKey`).
+>
+> Provisioning is TOKENLESS (Phase AC7): there is no claim token / server nonce. On
+> boot the device generates its Ed25519 identity and self-registers it with the server
+> via proof-of-possession (`POST /api/devices/register`). The device starts UNASSIGNED;
+> an admin associates it to an account (by email) in the web panel afterward.
 
 ---
 
@@ -63,9 +68,10 @@ only server-trust anchor; treat a change to it as a firmware re-pin.
 > Equivalent low-level form (same result):
 > `Base.encode16(SailRoute.SecureTransport.Primitives.ed25519_public_from_secret(SailRoute.SecureTransport.ServerIdentity.private_seed()), case: :lower)`
 
-### 1.3 Create an owner/admin account
+### 1.3 Create an admin account (for the post-registration association)
 
-The device is claimed BY a user account. Bootstrap one in the release:
+There is NO claim token to mint. The device self-registers UNASSIGNED; an admin then
+associates it to an account by email (§3.6). Bootstrap an admin in the release:
 
 ```sh
 fly ssh console -a <your-app> -C \
@@ -74,49 +80,9 @@ fly ssh console -a <your-app> -C \
 
 Idempotent: re-running with the same email updates the password and re-confirms.
 
-### 1.4 Mint a device claim token (captures BOTH the secret AND the server_nonce)
-
-The owner mints a single-use claim token bound to their account. The device needs BOTH
-the returned `claim_token` (secret) AND the `server_nonce` (the device signs a
-proof-of-possession over exactly this nonce). A fresh 32-byte `server_nonce` is minted
-and stored on the token at mint time; single-use consumption makes a captured signature
-non-replayable.
-
-There are two ways to mint; the release-console form is the simplest for an operator.
-
-**Option A — release console (recommended for ops).** Mint directly via
-`Devices.generate_claim_token/2`, which returns `{:ok, raw_secret, token}`:
-
-```sh
-fly ssh console -a <your-app> -C \
-  "/app/bin/sail_route eval '
-    user = SailRoute.Accounts.get_user_by_email(\"ops@example.com\")
-    {:ok, secret, token} = SailRoute.Devices.generate_claim_token(user)
-    IO.puts(\"CLAIM_TOKEN_SECRET=\" <> secret)
-    IO.puts(\"CLAIM_TOKEN_SERVER_NONCE=\" <> Base.encode64(token.server_nonce))
-  '"
-```
-
-Capture both printed values — the secret is shown ONCE (only its hash is stored).
-Optionally pass `pinned_fingerprint:` (the device fingerprint from §3.2) to bind the
-token to a specific device key and close the key-substitution hole.
-
-**Option B — web endpoint.** `POST /devices/claim-tokens` is mounted on the
-BROWSER pipeline behind `:require_authenticated_user` — i.e. it needs the owner's
-LOGGED-IN SESSION COOKIE + CSRF token (it is NOT a Bearer/`/api` route). From the
-logged-in web UI / a session-cookied client, the JSON response is:
-
-```json
-{
-  "claim_token":  "<opaque secret string>",   // -> device CLAIM_TOKEN_SECRET
-  "server_nonce": "<base64 of 32 raw bytes>",  // -> device CLAIM_TOKEN_SERVER_NONCE
-  "expires_at":   "2026-..."
-}
-```
-
-> If you pinned a fingerprint, the response also echoes `pinned_fingerprint`; the
-> device's identity fingerprint (§3.2) must match it or the claim is rejected
-> (`:pinned_fingerprint_mismatch`).
+> That is the entire server prep for provisioning: the server seed (§1.1), its pinned
+> public key (§1.2), and an admin account to do the association afterward. No token /
+> nonce mint step exists anymore.
 
 ---
 
@@ -128,30 +94,34 @@ firmware-compile time** (the same mechanism as the existing `API_ENDPOINT` /
 or set anything on the running device — you `export` them in the shell that runs
 `mix firmware`. Any value left unset is `nil`/`false`, which leaves the
 secure-transport stack dormant (the safe default: `ServerIdentity` unpinned →
-`ChannelClient` won't connect; `BootProvisioner` finds no claim inputs).
+`ChannelClient` won't connect AND `BootProvisioner` has no trusted server to register
+against → it no-ops).
 
 Provisioning values:
 
 | Env var | Maps to (wired in config.exs) | Purpose |
 |---|---|---|
-| `SECURE_TRANSPORT_SERVER_PUBLIC_KEY` | `ServerIdentity, public_key:` | The server pubkey from §1.2 (64-char hex or raw 32 bytes). The device's server-trust anchor. |
-| `CLAIM_TOKEN_SECRET` | `ClaimClient, claim_token_secret:` | The `claim_token` secret from §1.4. |
-| `CLAIM_TOKEN_SERVER_NONCE` | `BootProvisioner, server_nonce:` | The `server_nonce` (base64) from §1.4. |
-| `API_ENDPOINT` | `:api_endpoint` | Server HTTPS base (claim + bulk upload, and WS derivation). |
+| `SECURE_TRANSPORT_SERVER_PUBLIC_KEY` | `ServerIdentity, public_key:` | The server pubkey from §1.2 (64-char hex or raw 32 bytes). The device's server-trust anchor AND the only config the boot self-registration needs. |
+| `API_ENDPOINT` | `:api_endpoint` | Server HTTPS base (register + bulk upload, and WS derivation). |
 | `UDP_ENDPOINT` | `:udp_endpoint` | Server UDP host:port for telemetry. |
 | `SECURE_TRANSPORT_WS_URL` (optional) | read directly by `ChannelClient` | Override the WSS channel URL. Default derives from `API_ENDPOINT` (`https`→`wss`, path `/device_socket/websocket`). |
+
+> There is NO `CLAIM_TOKEN_SECRET` / `CLAIM_TOKEN_SERVER_NONCE` anymore. Registration
+> is tokenless: the only provisioning secret the device needs is the pinned server
+> public key, and the same image is safe to flash onto any number of devices (each
+> generates its own identity and registers independently; the server is idempotent).
 
 Rollout switches (also build-host env, read by config.exs; unset = the safe default):
 
 | Env var | Set to (initial) | Effect |
 |---|---|---|
-| `SECURE_TRANSPORT_ENABLED` | `true` | Single switch that drives `:secure_claim_on_boot` + `:secure_channel_enabled` + `:bulk_upload_enabled`: starts the boot claim, the WSS `ChannelClient`, and the post-race `BulkUploader` (all target-only). |
+| `SECURE_TRANSPORT_ENABLED` | `true` | Single switch that drives `:secure_register_on_boot` + `:secure_channel_enabled` + `:bulk_upload_enabled`: starts the boot self-registration, the WSS `ChannelClient`, and the post-race `BulkUploader` (all target-only). |
 | `REQUIRE_SECURE_TRANSPORT` | unset / `false` **(initially)** | Device-side plaintext kill switch (`:require_secure_transport`). Leave OFF until the enforcement flip (§4). |
 
 > The `BootProvisioner` / `ChannelClient` / `BulkUploader` start only on a real device
 > target (`MIX_TARGET` != `host`) AND when `SECURE_TRANSPORT_ENABLED=true`, matching how
 > NervesHubLink / the UDP path are gated. `SessionHolder` starts in every environment
-> (cheap, idle). Even when started, `ChannelClient` self-gates idle until claimed +
+> (cheap, idle). Even when started, `ChannelClient` self-gates idle until registered +
 > identity provisioned + server pinned, so the order of provisioning is forgiving.
 
 ### 2.1 Reflash the firmware
@@ -163,30 +133,29 @@ export API_ENDPOINT="https://sailroute-backend.fly.dev"      # your server base
 export UDP_ENDPOINT="sailroute-backend.fly.dev:4001"
 export PRODUCT="logger"
 export SECURE_TRANSPORT_SERVER_PUBLIC_KEY="<64-char hex from §1.2>"
-export CLAIM_TOKEN_SECRET="<claim_token secret from §1.4>"
-export CLAIM_TOKEN_SERVER_NONCE="<base64 server_nonce from §1.4>"
-export SECURE_TRANSPORT_ENABLED=true        # turn on claim + channel + bulk
+export SECURE_TRANSPORT_ENABLED=true        # turn on register + channel + bulk
 # REQUIRE_SECURE_TRANSPORT stays unset until the §4 cutover
 
 MIX_TARGET=<target> mix firmware
 MIX_TARGET=<target> mix burn                # or: fwup / NervesHub OTA push
 ```
 
-> Because the claim token + nonce are baked into this image and the claim is
-> SINGLE-USE, this firmware claims exactly ONE device on first boot (reflashing a
-> second device with the same image will fail `:invalid_claim_token`). For a fleet,
-> provision per-device out of band — the documented NervesKey / `/data` seam — instead
-> of baking a shared token.
+> This image carries NO per-device secret (registration is tokenless), so the SAME
+> image is safe to flash onto any number of devices: each generates its own Ed25519
+> identity on first boot and self-registers independently. The server is idempotent —
+> re-flashing / rebooting a device just refreshes its existing `DeviceKey`.
 
 ### 2.2 What the device does on boot (automatic)
 
 1. `KeyStore.load_or_generate/1` generates the device's long-term Ed25519 identity on
    first boot and persists the 32-byte seed `0600` at `/data/secure_transport/device_ed25519.key`
    (reloaded unchanged on every later boot).
-2. `BootProvisioner` claims the device: `POST /api/devices/claim` with the PoP
-   signature over `(CLAIM_TOKEN_SECRET, public_key, server_nonce)`. On success it
-   persists a claim marker (`/data/secure_transport/claim_marker.json`). A rejected
-   token is logged, NOT crash-looped — fix the inputs and reboot.
+2. `BootProvisioner` self-registers the device: `POST /api/devices/register` with the
+   PoP signature over `("SailRoute-DeviceRegister-v1", public_key, timestamp)` — no
+   claim token, no server nonce. On success it persists a register marker
+   (`/data/secure_transport/register_marker.json`). The device is recorded UNASSIGNED;
+   an admin associates it to an account in §3.6. A rejected registration is logged, NOT
+   crash-looped — the device retries on the next boot.
 3. `ChannelClient` connects the WSS channel (`/device_socket`), joins `device:<fp>`,
    runs the initiator handshake, and on `handshake_ok` publishes the live `Session`
    into `SessionHolder`.
@@ -201,7 +170,7 @@ MIX_TARGET=<target> mix burn                # or: fwup / NervesHub OTA push
 
 ## 3. Verification
 
-### 3.1 Confirm the device claimed (a `device_key` row exists)
+### 3.1 Confirm the device registered (a `device_key` row exists)
 
 ```sh
 # Find the device key by the device's identity fingerprint (see 3.2 for the fp).
@@ -209,7 +178,8 @@ fly ssh console -a <your-app> -C \
   "/app/bin/sail_route eval 'IO.inspect(SailRoute.Devices.get_device_key_by_fingerprint(\"<fingerprint-hex>\"))'"
 ```
 
-A non-nil `DeviceKey` with the expected `device_id` confirms the claim landed.
+A non-nil `DeviceKey` with the expected `device_id` confirms the registration landed.
+The device starts UNASSIGNED until an admin associates it (§3.6).
 
 ### 3.2 Find the device's fingerprint (from the device)
 
@@ -249,6 +219,14 @@ curl -sS https://<host>/api/race_recordings/<recording_id>/manifest_status
 # -> verification_status: "complete", no missing_chunk_indexes
 ```
 
+### 3.6 Associate the registered device to an account (admin, replaces the old claim)
+
+The device registers UNASSIGNED. An admin then associates it to an account by email
+in the web admin panel (the post-registration step that replaces the old owner claim).
+Identify the device by its fingerprint (§3.2) or the `device_id` from §3.1, find the
+account by email (§1.3), and associate them in the panel. Once associated, the device's
+telemetry and channel session are attributed to that account.
+
 ---
 
 ## 4. THE ENFORCEMENT FLIP (coordinated cutover for this device)
@@ -269,8 +247,9 @@ until §3.3 + §3.4 are green for this device.
 > not a no-op.
 
 ### Step A — Pre-checks
-Confirm: device sending AEAD (§3.4), channel session healthy (§3.3), claim row present
-(§3.1). Keep both `require_secure_transport` flags OFF at this point.
+Confirm: device sending AEAD (§3.4), channel session healthy (§3.3), device-key row
+present (§3.1) and associated (§3.6). Keep both `require_secure_transport` flags OFF at
+this point.
 
 ### Step B — Turn OFF device plaintext (DEVICE first)
 Rebuild + reflash the device firmware with the kill switch on. It is compile-time
