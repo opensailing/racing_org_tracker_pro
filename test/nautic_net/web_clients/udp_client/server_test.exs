@@ -15,15 +15,15 @@ defmodule NauticNet.WebClients.UDPClient.ServerTest do
       start_supervised!({Server, hostname: "localhost", port: 65_000, commands: commands, name: nil})
 
     packet =
-      ServerReply.new(
+      struct(ServerReply, 
         protocol_version: 1,
         device_id: "dev-1",
         command:
-          DeviceCommand.new(
+          struct(DeviceCommand, 
             command_id: "udp-1",
             assignment_id: "asg-1",
             assignment_version: 1,
-            payload: {:race_assignment, RaceAssignment.new()}
+            payload: {:race_assignment, %RaceAssignment{}}
           )
       )
       |> ServerReply.encode()

@@ -17,7 +17,7 @@ defmodule NauticNet.Commands.StoreTest do
       version: 3,
       command_id: "c1",
       hash: "h",
-      race_assignment: RaceAssignment.new(race_session_id: "2026-06-03-1", active_mark_code: "1"),
+      race_assignment: struct(RaceAssignment, race_session_id: "2026-06-03-1", active_mark_code: "1"),
       active_mark_code: "1"
     }
   end

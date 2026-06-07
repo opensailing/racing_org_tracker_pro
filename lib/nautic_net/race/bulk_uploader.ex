@@ -346,7 +346,7 @@ defmodule NauticNet.Race.BulkUploader do
   defp build_manifest_blob(recording, race_session_id, plans, opts) do
     chunks =
       Enum.map(plans, fn plan ->
-        ChunkDescriptor.new(
+        struct(ChunkDescriptor,
           chunk_id: plan.chunk_id,
           byte_count: plan.byte_count,
           checksum: plan.checksum,
@@ -355,7 +355,7 @@ defmodule NauticNet.Race.BulkUploader do
       end)
 
     manifest =
-      RaceManifest.new(
+      struct(RaceManifest,
         race_recording_id: recording.recording_id,
         device_id: recording.device_id || "",
         assignment_id: recording.assignment_id || "",

@@ -27,21 +27,21 @@ defmodule NauticNet.Nav.BroadcasterTest do
 
   defp assign_course(commands) do
     marks = [
-      CourseMark.new(code: "1", sequence: 1, position: LatLon.new(latitude: 42.0, longitude: -70.0)),
-      CourseMark.new(code: "2", sequence: 2, position: LatLon.new(latitude: 42.1, longitude: -70.0))
+      struct(CourseMark, code: "1", sequence: 1, position: struct(LatLon, latitude: 42.0, longitude: -70.0)),
+      struct(CourseMark, code: "2", sequence: 2, position: struct(LatLon, latitude: 42.1, longitude: -70.0))
     ]
 
-    race = RaceAssignment.new(course_marks: marks, active_mark_code: "2", route_hash: "rh")
+    race = struct(RaceAssignment, course_marks: marks, active_mark_code: "2", route_hash: "rh")
 
     command =
-      DeviceCommand.new(
+      struct(DeviceCommand, 
         command_id: "c1",
         assignment_id: "a1",
         assignment_version: 1,
         payload: {:race_assignment, race}
       )
 
-    reply = ServerReply.new(protocol_version: 1, device_id: "", command: command) |> ServerReply.encode()
+    reply = struct(ServerReply, protocol_version: 1, device_id: "", command: command) |> ServerReply.encode()
     :applied = Commands.apply_reply(commands, reply)
   end
 

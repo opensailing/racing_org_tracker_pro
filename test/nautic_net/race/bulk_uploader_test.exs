@@ -55,7 +55,7 @@ defmodule NauticNet.Race.BulkUploaderTest do
 
     {recording, _manifest} =
       Enum.reduce(1..4, recording, fn i, rec ->
-        Recording.append(rec, DataSet.encode(DataSet.new(boat_identifier: "b", counter: i)))
+        Recording.append(rec, DataSet.encode(struct(DataSet, boat_identifier: "b", counter: i)))
       end)
       |> Recording.finalize(device_status: "complete")
 

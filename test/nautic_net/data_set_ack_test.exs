@@ -10,16 +10,16 @@ defmodule NauticNet.DataSetAckTest do
 
   test "data_set/2 carries the latest applied command ACK" do
     reply =
-      ServerReply.new(
+      struct(ServerReply, 
         protocol_version: 1,
         # broadcast device_id so it applies regardless of this host's identifier
         device_id: "",
         command:
-          DeviceCommand.new(
+          struct(DeviceCommand, 
             command_id: "ack-test-1",
             assignment_id: "asg-ack",
             assignment_version: 7,
-            payload: {:race_assignment, RaceAssignment.new()}
+            payload: {:race_assignment, %RaceAssignment{}}
           )
       )
       |> ServerReply.encode()

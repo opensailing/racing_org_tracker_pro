@@ -28,16 +28,16 @@ defmodule NauticNet.Nav.StateTest do
   describe "State.derive/2" do
     defp marks do
       [
-        CourseMark.new(code: "1", sequence: 1, position: LatLon.new(latitude: 42.0, longitude: -70.0)),
-        CourseMark.new(code: "2", sequence: 2, position: LatLon.new(latitude: 42.1, longitude: -70.0)),
-        CourseMark.new(code: "3", sequence: 3, position: LatLon.new(latitude: 42.2, longitude: -70.0))
+        struct(CourseMark, code: "1", sequence: 1, position: struct(LatLon, latitude: 42.0, longitude: -70.0)),
+        struct(CourseMark, code: "2", sequence: 2, position: struct(LatLon, latitude: 42.1, longitude: -70.0)),
+        struct(CourseMark, code: "3", sequence: 3, position: struct(LatLon, latitude: 42.2, longitude: -70.0))
       ]
     end
 
     defp assignment(active_code) do
       %Assignment{
         active_mark_code: active_code,
-        race_assignment: RaceAssignment.new(course_marks: marks(), active_mark_code: active_code)
+        race_assignment: struct(RaceAssignment, course_marks: marks(), active_mark_code: active_code)
       }
     end
 

@@ -64,7 +64,7 @@ defmodule NauticNet.Telemetry do
       proto_data_point(device_id, timestamp,
         sample:
           {:attitude,
-           Protobuf.AttitudeSample.new(
+           struct(Protobuf.AttitudeSample,
              yaw_mrad: Protobuf.Convert.encode_unit(yaw_rad, :rad, :mrad),
              pitch_mrad: Protobuf.Convert.encode_unit(pitch_rad, :rad, :mrad),
              roll_mrad: Protobuf.Convert.encode_unit(roll_rad, :rad, :mrad)
@@ -82,7 +82,7 @@ defmodule NauticNet.Telemetry do
        }) do
     [
       proto_data_point(device_id, timestamp,
-        sample: {:position, Protobuf.PositionSample.new(latitude: lat, longitude: lon)}
+        sample: {:position, struct(Protobuf.PositionSample, latitude: lat, longitude: lon)}
       )
     ]
   end
@@ -97,7 +97,7 @@ defmodule NauticNet.Telemetry do
       proto_data_point(device_id, timestamp,
         sample:
           {:wind_velocity,
-           Protobuf.WindVelocitySample.new(
+           struct(Protobuf.WindVelocitySample,
              wind_reference: Protobuf.WindReference.value(:WIND_REFERENCE_APPARENT),
              speed_cm_s: Protobuf.Convert.encode_unit(mean.magnitude, :m_s, :cm_s),
              angle_mrad: Protobuf.Convert.encode_unit(mean.angle, :rad, :mrad)
@@ -116,7 +116,7 @@ defmodule NauticNet.Telemetry do
       proto_data_point(device_id, timestamp,
         sample:
           {:speed,
-           Protobuf.SpeedSample.new(
+           struct(Protobuf.SpeedSample,
              speed_reference: Protobuf.SpeedReference.value(:SPEED_REFERENCE_WATER),
              speed_cm_s: Protobuf.Convert.encode_unit(speed_m_s, :m_s, :cm_s)
            )}
@@ -132,7 +132,7 @@ defmodule NauticNet.Telemetry do
        }) do
     [
       proto_data_point(device_id, timestamp,
-        sample: {:water_depth, Protobuf.WaterDepthSample.new(depth_cm: Protobuf.Convert.encode_unit(depth_m, :m, :cm))}
+        sample: {:water_depth, struct(Protobuf.WaterDepthSample, depth_cm: Protobuf.Convert.encode_unit(depth_m, :m, :cm))}
       )
     ]
   end
@@ -145,7 +145,7 @@ defmodule NauticNet.Telemetry do
       proto_data_point(device_id, timestamp,
         sample:
           {:heading,
-           Protobuf.HeadingSample.new(
+           struct(Protobuf.HeadingSample,
              angle_mrad: Protobuf.Convert.encode_unit(angle_rad, :rad, :mrad),
              # No idea if this is true or magnetic...
              angle_reference: Protobuf.AngleReference.value(:ANGLE_REFERENCE_NONE)
@@ -165,7 +165,7 @@ defmodule NauticNet.Telemetry do
       proto_data_point(device_id, timestamp,
         sample:
           {:velocity,
-           Protobuf.VelocitySample.new(
+           struct(Protobuf.VelocitySample,
              # ANGLE_REFERENCE_REFERENCE_TRUE is an educated guess...
              angle_reference: Protobuf.AngleReference.value(:ANGLE_REFERENCE_TRUE_NORTH),
              speed_reference: Protobuf.SpeedReference.value(:SPEED_REFERENCE_GROUND),
@@ -184,6 +184,6 @@ defmodule NauticNet.Telemetry do
       hw_id: DeviceInfo.hw_id(device_id)
     ]
     |> Keyword.merge(fields)
-    |> Protobuf.DataSet.DataPoint.new()
+    |> then(&struct(Protobuf.DataSet.DataPoint, &1))
   end
 end

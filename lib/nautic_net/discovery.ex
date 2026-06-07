@@ -33,7 +33,7 @@ defmodule NauticNet.Discovery do
   """
   def to_network_devices(known_network_devices) do
     Enum.map(known_network_devices, fn {_source_addr, %DeviceInfo{} = device_info} ->
-      NetworkDevice.new(
+      struct(NetworkDevice,
         hw_id: NauticNet.DeviceInfo.hw_id(device_info.nmea_name),
         name: "#{device_info.manufacture_name} - #{device_info.model_id}"
       )

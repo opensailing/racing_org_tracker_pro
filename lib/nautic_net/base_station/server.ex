@@ -120,18 +120,18 @@ defmodule NauticNet.BaseStation.Server do
       |> then(&"Boat-#{&1}")
 
     data_point =
-      DataPoint.new(
+      struct(DataPoint,
         # Zero-out the timestamp to indicate "ASAP", and the server will apply the timestamp after upload
-        timestamp: Google.Protobuf.Timestamp.new(),
+        timestamp: %Google.Protobuf.Timestamp{},
         sample:
           {:tracker,
-           TrackerSample.new(
+           struct(TrackerSample,
              rssi: rssi,
              rover_data: rover_data
            )}
       )
 
-    DataSet.new(boat_identifier: boat_serial, data_points: [data_point])
+    struct(DataSet, boat_identifier: boat_serial, data_points: [data_point])
     |> DataSet.encode()
     |> UDPClient.send_data_set()
 

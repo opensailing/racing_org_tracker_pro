@@ -15,7 +15,7 @@ defmodule NauticNet.Sampling.PhaseTest do
   defp assignment(opts) do
     rules =
       if Keyword.get(opts, :rules, true) do
-        SamplingRules.new(
+        struct(SamplingRules, 
           default_mode: :SAMPLE_MODE_OUTING_1HZ,
           race_mode: :SAMPLE_MODE_RACE_5HZ,
           event_mode: :SAMPLE_MODE_EVENT_10HZ,
@@ -26,7 +26,7 @@ defmodule NauticNet.Sampling.PhaseTest do
       end
 
     race =
-      RaceAssignment.new(
+      struct(RaceAssignment, 
         official_start_time: opts[:start] && ts(opts[:start]),
         expected_duration_seconds: Keyword.get(opts, :duration, 3600),
         sampling_rules: rules,
@@ -75,7 +75,7 @@ defmodule NauticNet.Sampling.PhaseTest do
   end
 
   test "within mark proximity while racing is rounding at 10 Hz" do
-    marks = [CourseMark.new(code: "1", position: LatLon.new(latitude: 42.0, longitude: -70.0))]
+    marks = [struct(CourseMark, code: "1", position: struct(LatLon, latitude: 42.0, longitude: -70.0))]
     a = assignment(start: @start, marks: marks, mp: 100)
     # ~50 m away
     assert {:rounding, :event_10hz} = Phase.evaluate(a, shift(120), %{lat: 42.0004, lon: -70.0})

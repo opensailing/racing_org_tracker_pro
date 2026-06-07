@@ -143,10 +143,10 @@ defmodule NauticNet.SecureTransport.ChannelHandlerTest do
 
     defp command_payload(opts) do
       payload =
-        Keyword.get(opts, :payload, {:race_assignment, RaceAssignment.new(race_session_id: "rs-1")})
+        Keyword.get(opts, :payload, {:race_assignment, struct(RaceAssignment, race_session_id: "rs-1")})
 
       command =
-        DeviceCommand.new(
+        struct(DeviceCommand, 
           command_id: Keyword.get(opts, :command_id, "cmd-1"),
           assignment_id: Keyword.get(opts, :assignment_id, "asg-1"),
           assignment_version: Keyword.get(opts, :assignment_version, 1),
@@ -154,7 +154,7 @@ defmodule NauticNet.SecureTransport.ChannelHandlerTest do
         )
 
       reply =
-        ServerReply.new(
+        struct(ServerReply, 
           protocol_version: 1,
           device_id: Keyword.get(opts, :device_id, "dev-1"),
           command: command

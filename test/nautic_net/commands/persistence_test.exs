@@ -24,11 +24,11 @@ defmodule NauticNet.Commands.PersistenceTest do
       Keyword.get(
         opts,
         :payload,
-        {:race_assignment, RaceAssignment.new(race_session_id: "2026-06-03-1", active_mark_code: "1")}
+        {:race_assignment, struct(RaceAssignment, race_session_id: "2026-06-03-1", active_mark_code: "1")}
       )
 
     command =
-      DeviceCommand.new(
+      struct(DeviceCommand, 
         command_id: Keyword.get(opts, :command_id, "cmd-1"),
         assignment_id: Keyword.get(opts, :assignment_id, "asg-1"),
         assignment_version: Keyword.get(opts, :assignment_version, 1),
@@ -36,7 +36,7 @@ defmodule NauticNet.Commands.PersistenceTest do
         payload: payload
       )
 
-    ServerReply.new(protocol_version: 1, device_id: "", command: command) |> ServerReply.encode()
+    struct(ServerReply, protocol_version: 1, device_id: "", command: command) |> ServerReply.encode()
   end
 
   test "an applied assignment survives a restart, and stale commands are rejected after reboot", %{dir: dir} do
@@ -60,10 +60,10 @@ defmodule NauticNet.Commands.PersistenceTest do
 
     route =
       {:route_update,
-       RouteUpdate.new(
+       struct(RouteUpdate, 
          route_hash: "rh",
          active_mark_code: "2",
-         route_geometry: [LatLon.new(latitude: 1.0, longitude: 2.0)]
+         route_geometry: [struct(LatLon, latitude: 1.0, longitude: 2.0)]
        )}
 
     assert :applied = Commands.apply_reply(c, encode(command_id: "ru", assignment_version: 2, payload: route))
@@ -79,7 +79,7 @@ defmodule NauticNet.Commands.PersistenceTest do
     c = start(dir)
     assert :applied = Commands.apply_reply(c, encode(command_id: "ra", assignment_version: 1))
 
-    waypoint = {:active_waypoint_update, ActiveWaypointUpdate.new(active_mark_code: "3")}
+    waypoint = {:active_waypoint_update, struct(ActiveWaypointUpdate, active_mark_code: "3")}
     assert :applied = Commands.apply_reply(c, encode(command_id: "awu", assignment_version: 2, payload: waypoint))
     assert Commands.current_assignment(c).active_mark_code == "3"
   end
@@ -88,7 +88,7 @@ defmodule NauticNet.Commands.PersistenceTest do
     c = start(dir)
     assert :applied = Commands.apply_reply(c, encode(command_id: "ra", assignment_version: 1))
 
-    cancel = {:cancel_assignment, CancelAssignment.new(reason: "abandoned")}
+    cancel = {:cancel_assignment, struct(CancelAssignment, reason: "abandoned")}
     assert :applied = Commands.apply_reply(c, encode(command_id: "cx", assignment_version: 2, payload: cancel))
     assert Commands.current_assignment(c).cancelled == true
   end
@@ -97,7 +97,7 @@ defmodule NauticNet.Commands.PersistenceTest do
     c = start(dir)
     assert :applied = Commands.apply_reply(c, encode(command_id: "ra", assignment_version: 1))
 
-    noop = {:noop, NoopCommand.new()}
+    noop = {:noop, %NoopCommand{}}
 
     assert :applied =
              Commands.apply_reply(c, encode(command_id: "noop", assignment_id: "", assignment_version: 0, payload: noop))

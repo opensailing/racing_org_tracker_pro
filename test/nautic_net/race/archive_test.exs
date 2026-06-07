@@ -39,12 +39,12 @@ defmodule NauticNet.Race.ArchiveTest do
 
   defp assign(commands, recording_id, attrs) do
     race =
-      RaceAssignment.new(
+      struct(RaceAssignment, 
         [race_recording_id: recording_id, route_hash: "rh"] ++ attrs
       )
 
     command =
-      DeviceCommand.new(
+      struct(DeviceCommand, 
         command_id: "c1",
         assignment_id: "a1",
         assignment_version: 1,
@@ -52,11 +52,11 @@ defmodule NauticNet.Race.ArchiveTest do
         payload: {:race_assignment, race}
       )
 
-    reply = ServerReply.new(protocol_version: 1, device_id: "", command: command) |> ServerReply.encode()
+    reply = struct(ServerReply, protocol_version: 1, device_id: "", command: command) |> ServerReply.encode()
     :applied = Commands.apply_reply(commands, reply)
   end
 
-  defp ds(i), do: DataSet.encode(DataSet.new(boat_identifier: "b", counter: i))
+  defp ds(i), do: DataSet.encode(struct(DataSet, boat_identifier: "b", counter: i))
 
   defp race(archive, commands, recording_id, samples, assign_attrs \\ []) do
     assign(commands, recording_id, assign_attrs)
@@ -93,11 +93,11 @@ defmodule NauticNet.Race.ArchiveTest do
     assert_receive {:enqueued, _manifest}
 
     verification =
-      DeviceCommand.new(
+      struct(DeviceCommand, 
         command_id: "v1",
         payload:
           {:manifest_verification_result,
-           ManifestVerificationResult.new(race_recording_id: "2026-06-03-7", complete: true)}
+           struct(ManifestVerificationResult, race_recording_id: "2026-06-03-7", complete: true)}
       )
 
     send(a, {:nautic_net_command, verification})
@@ -114,11 +114,11 @@ defmodule NauticNet.Race.ArchiveTest do
     [chunk] = DataSet.decode(manifest_binary).manifest.chunks
 
     request =
-      DeviceCommand.new(
+      struct(DeviceCommand, 
         command_id: "m1",
         payload:
           {:missing_chunk_request,
-           MissingChunkRequest.new(race_recording_id: "2026-06-03-7", chunk_ids: [chunk.chunk_id])}
+           struct(MissingChunkRequest, race_recording_id: "2026-06-03-7", chunk_ids: [chunk.chunk_id])}
       )
 
     send(a, {:nautic_net_command, request})

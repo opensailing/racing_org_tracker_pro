@@ -204,7 +204,7 @@ defmodule NauticNet.Commands do
   end
 
   defp build_ack(%DeviceCommand{} = command) do
-    CommandAck.new(
+    struct(CommandAck,
       command_id: command.command_id,
       assignment_id: command.assignment_id,
       assignment_version: command.assignment_version
@@ -212,7 +212,7 @@ defmodule NauticNet.Commands do
   end
 
   defp ack_from_assignment(%Assignment{} = assignment) do
-    CommandAck.new(
+    struct(CommandAck,
       command_id: assignment.command_id,
       assignment_id: assignment.assignment_id,
       assignment_version: assignment.version

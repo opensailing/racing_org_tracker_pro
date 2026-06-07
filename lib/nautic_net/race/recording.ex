@@ -99,7 +99,7 @@ defmodule NauticNet.Race.Recording do
   def build_manifest(%__MODULE__{} = recording, finished_at \\ nil, device_status \\ "in_progress") do
     chunks = Enum.map(recording.sealed_chunks, &to_proto_chunk/1)
 
-    RaceManifest.new(
+    struct(RaceManifest,
       race_recording_id: recording.recording_id,
       device_id: recording.device_id || "",
       assignment_id: recording.assignment_id || "",
@@ -225,7 +225,7 @@ defmodule NauticNet.Race.Recording do
   defp sha256_hex(bytes), do: :crypto.hash(:sha256, bytes) |> Base.encode16(case: :lower)
 
   defp to_proto_chunk(%{chunk_id: id, byte_count: bc, checksum: cs, sample_count: sc}) do
-    ChunkDescriptor.new(chunk_id: id, byte_count: bc, checksum: cs, sample_count: sc)
+    struct(ChunkDescriptor, chunk_id: id, byte_count: bc, checksum: cs, sample_count: sc)
   end
 
   defp proto_ts(nil), do: nil

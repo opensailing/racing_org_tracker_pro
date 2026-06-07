@@ -11,7 +11,7 @@ defmodule NauticNet.Race.RecordingTest do
     %{base: base}
   end
 
-  defp ds(i), do: DataSet.encode(DataSet.new(boat_identifier: "b", counter: i))
+  defp ds(i), do: DataSet.encode(struct(DataSet, boat_identifier: "b", counter: i))
 
   defp open(base, opts \\ []) do
     attrs =

@@ -43,7 +43,7 @@ defmodule NauticNet.SamplingTest do
 
   defp apply_race_assignment(commands, opts) do
     rules =
-      SamplingRules.new(
+      struct(SamplingRules, 
         default_mode: :SAMPLE_MODE_OUTING_1HZ,
         race_mode: :SAMPLE_MODE_RACE_5HZ,
         event_mode: :SAMPLE_MODE_EVENT_10HZ,
@@ -53,7 +53,7 @@ defmodule NauticNet.SamplingTest do
       )
 
     race =
-      RaceAssignment.new(
+      struct(RaceAssignment, 
         official_start_time: ts(@start),
         expected_duration_seconds: 3600,
         sampling_rules: rules,
@@ -61,14 +61,14 @@ defmodule NauticNet.SamplingTest do
       )
 
     command =
-      DeviceCommand.new(
+      struct(DeviceCommand, 
         command_id: "c1",
         assignment_id: "a1",
         assignment_version: 1,
         payload: {:race_assignment, race}
       )
 
-    reply = ServerReply.new(protocol_version: 1, device_id: "", command: command) |> ServerReply.encode()
+    reply = struct(ServerReply, protocol_version: 1, device_id: "", command: command) |> ServerReply.encode()
     :applied = Commands.apply_reply(commands, reply)
   end
 
@@ -96,7 +96,7 @@ defmodule NauticNet.SamplingTest do
 
   test "goes to 10 Hz rounding when near a mark" do
     %{commands: c, sampling: s} = start_sampling(DateTime.add(@start, 120, :second))
-    marks = [CourseMark.new(code: "1", position: LatLon.new(latitude: 42.0, longitude: -70.0))]
+    marks = [struct(CourseMark, code: "1", position: struct(LatLon, latitude: 42.0, longitude: -70.0))]
     apply_race_assignment(c, marks: marks)
     send(s, {:sampling_position, {42.0, -70.0}})
     assert {:rounding, :event_10hz} = Sampling.reevaluate(s)
