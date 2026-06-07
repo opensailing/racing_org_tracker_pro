@@ -97,7 +97,16 @@ config :nerves, source_date_epoch: "1655934717"
 
 config :logger, backends: [RingLogger]
 
-config :tesla, adapter: Tesla.Adapter.Hackney
+# Mint adapter (pure-Elixir, no NIFs). On the device Mint auto-uses castore for
+# HTTPS certificate verification (verify_peer by default), resolved at runtime.
+# Replaces hackney, whose 4.x line (required by tesla 1.20) drags in an unused
+# QUIC/HTTP3 stack.
+config :tesla, adapter: Tesla.Adapter.Mint
+
+# Tesla 1.20 soft-deprecates the `use Tesla` builder macro (still fully
+# supported) in favor of runtime configuration. We continue to use the builder
+# in NauticNet.WebClients.HTTPClient, so silence the per-compile warning.
+config :tesla, disable_deprecated_builder_warning: true
 
 if Mix.target() == :host or Mix.target() == :"" do
   import_config "host_#{Mix.env()}.exs"

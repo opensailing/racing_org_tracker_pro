@@ -67,14 +67,17 @@ defmodule NauticNet.Device.MixProject do
 
       # Telemetry
       {:telemetry, "~> 1.0"},
-      {:telemetry_metrics, "~> 0.6"},
+      {:telemetry_metrics, "~> 1.1"},
 
       # Cellular
       {:vintage_net_qmi, "~> 0.4", targets: @all_device_targets},
 
-      # HTTP client
+      # HTTP client. Mint is the Tesla adapter: pure-Elixir, no NIFs, and on the
+      # device it auto-uses castore for HTTPS cert verification (verify_peer) at
+      # runtime. We do NOT use hackney: tesla 1.20 requires hackney >= 4.0.2, whose
+      # 4.x line bundles a full QUIC/HTTP3 stack this device never uses.
       {:tesla, "~> 1.4"},
-      {:hackney, "~> 1.17"},
+      {:mint, "~> 1.0"},
       {:jason, ">= 1.0.0"},
 
       # :nmea pulls in ng_can, a Linux/SocketCAN NIF (needs <linux/can.h>) that
