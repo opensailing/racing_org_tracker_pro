@@ -297,10 +297,16 @@ re-open the server before re-opening the device.
 
 ---
 
-## 5. The GLOBAL flags (separate, fleet-wide cutovers — NOT this device)
+## 5. The GLOBAL device-transport flag (separate, fleet-wide — NOT this device)
 
-The per-device flip above is one device. Two global flags are independent, fleet-wide
-cutovers; do them ONLY after the WHOLE fleet is reflashed + verified:
+> User-facing web/API auth is NO LONGER a flag. It is ALWAYS ON (the old
+> `WEB_AUTH_ENFORCE` / `:web_auth` flag was removed): every web/API user surface
+> requires a logged-in user + bearer token and is owner-scoped. The iOS app + web log
+> in with an account; device telemetry ingest is device-authenticated and unaffected.
+> So the only remaining global cutover is the UDP plaintext kill switch below.
+
+The per-device flip above is one device. One global flag remains; do it ONLY after the
+WHOLE fleet is reflashed + verified:
 
 - **`require_authenticated_device` (UDP telemetry kill switch).**
   `config :sail_route, :device_auth, require_authenticated_device: true`. When ON, the
@@ -309,14 +315,6 @@ cutovers; do them ONLY after the WHOLE fleet is reflashed + verified:
   (`SecureUDPIngest.plaintext_rejected?/1`). This bricks any not-yet-reflashed device,
   so it is the LAST step after the entire fleet is on AEAD.
 
-- **`WEB_AUTH_ENFORCE` (web/API user-principal auth — P7).**
-  `WEB_AUTH_ENFORCE=true` sets `config :sail_route, :web_auth, enforce: true`, read by
-  `SailRouteWeb.UserAuth.enforce?/0` and acted on by the `RequireApiUser` plug to
-  reject unauthenticated web/API requests. This governs the WEB/API plane (the iOS app
-  bearer auth), NOT device telemetry. Flip it ON only AFTER the iOS client ships bearer
-  auth, or you lock out the app. It is entirely separate from the device transport
-  flags above.
-
-These three (`require_secure_transport` per device, `require_authenticated_device`
-global UDP, `WEB_AUTH_ENFORCE` global web) are independent switches — flip each in its
-own coordinated window.
+These two (`require_secure_transport` per device, `require_authenticated_device` global
+UDP) are independent device-transport switches — flip each in its own coordinated
+window.
