@@ -43,6 +43,8 @@ defmodule Mix.Tasks.Firmware.Signed do
       )
     end
 
+    ensure_cmake_cross_env()
+
     priv_key = opts[:private_key] || System.get_env("FWUP_PRIV_KEY") || "fwup-key.priv"
 
     unless File.exists?(priv_key) do
@@ -78,6 +80,37 @@ defmodule Mix.Tasks.Firmware.Signed do
       :reset,
       Path.expand(signed)
     ])
+  end
+
+  # CMake-based NIFs (e.g. :expty / libuv, pulled in by the NervesHub LocalShell
+  # extension) don't cross-compile cleanly under Nerves on a macOS host without two
+  # nudges, so set them here (without clobbering values the caller already provided):
+  #
+  #   * CMAKE_POLICY_VERSION_MINIMUM=3.5 — libuv 1.44.2 declares an ancient
+  #     `cmake_minimum_required` that CMake 4.x refuses; this re-enables old-policy
+  #     compatibility (the escape hatch CMake itself suggests).
+  #   * TOOLCHAIN_FILE — expty's Makefile passes `-D CMAKE_TOOLCHAIN_FILE="$(TOOLCHAIN_FILE)"`,
+  #     and an empty value CLOBBERS the toolchain file Nerves otherwise provides via the
+  #     env, so CMake falls back to the macOS host and emits `-arch arm64` (which the GNU
+  #     ARM cross-gcc rejects). Point it at the Nerves cross toolchain file.
+  defp ensure_cmake_cross_env do
+    unless System.get_env("CMAKE_POLICY_VERSION_MINIMUM"),
+      do: System.put_env("CMAKE_POLICY_VERSION_MINIMUM", "3.5")
+
+    toolchain =
+      [
+        System.get_env("TOOLCHAIN_FILE"),
+        System.get_env("CMAKE_TOOLCHAIN_FILE"),
+        default_toolchain_file()
+      ]
+      |> Enum.find(&(is_binary(&1) and &1 != ""))
+
+    if toolchain, do: System.put_env("TOOLCHAIN_FILE", toolchain)
+  end
+
+  defp default_toolchain_file do
+    candidate = Path.expand("deps/nerves_system_br/nerves-env.cmake")
+    if File.exists?(candidate), do: candidate
   end
 
   defp fwup!(args) do
