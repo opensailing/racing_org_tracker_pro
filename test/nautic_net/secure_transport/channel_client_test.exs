@@ -122,6 +122,44 @@ defmodule NauticNet.SecureTransport.ChannelClientTest do
       assert device_session.session_id == server_session.session_id
       assert device_session.out_key == server_session.in_key
     end
+
+    test "validates the running firmware once the SailRoute session is live", ctx do
+      {:ok, holder} = start_supervised({SessionHolder, name: nil})
+      parent = self()
+      topic = "device:" <> ctx.identity.fingerprint
+
+      client =
+        start_supervised!(
+          {ChannelClient,
+           name: nil,
+           auto_connect?: true,
+           test_mode?: true,
+           url: "wss://test.local/device_socket/websocket",
+           session_holder: holder,
+           firmware_validator: fn -> send(parent, :firmware_validated) end,
+           keystore_opts: [base_path: ctx.base]}
+        )
+
+      connect_and_assert_join(client, ^topic, %{}, :ok)
+
+      {:ok, hello_wire, rstate} =
+        Handshake.responder_hello(
+          server_identity_private: ctx.srv_priv,
+          server_identity_public: ctx.srv_pub,
+          device_identity_public: ctx.identity.public_key,
+          epoch: 0
+        )
+
+      push(client, topic, "handshake_hello", %{"hello" => Base.encode64(hello_wire)})
+      assert_push(^topic, "handshake_init", %{"init" => init_b64})
+      {:ok, init_wire} = Base.decode64(init_b64)
+      assert {:ok, server_session} = Handshake.responder_finalize(rstate, init_wire)
+
+      push(client, topic, "handshake_ok", %{"session_id" => Base.encode64(server_session.session_id)})
+
+      # The firmware is validated exactly when the device connects to SailRoute correctly.
+      assert_receive :firmware_validated
+    end
   end
 
   # --- remote WiFi management (J5): set_wifi / wifi_status over the channel ---

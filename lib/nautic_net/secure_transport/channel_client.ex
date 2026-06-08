@@ -123,6 +123,7 @@ defmodule NauticNet.SecureTransport.ChannelClient do
       commands: Keyword.get(opts, :commands, NauticNet.Commands),
       session_holder: Keyword.get(opts, :session_holder, SessionHolder),
       wifi: normalize_wifi(Keyword.get(opts, :wifi, NauticNet.WiFiManager)),
+      firmware_validator: Keyword.get(opts, :firmware_validator, &NauticNet.FirmwareValidator.validate_on_connect/0),
       backoff_opts: Keyword.get(opts, :backoff, Backoff.defaults()),
       attempt: 0,
       session: nil,
@@ -204,6 +205,10 @@ defmodule NauticNet.SecureTransport.ChannelClient do
           :ok ->
             :ok = SessionHolder.put(socket.assigns.session_holder, session)
             Logger.info("[ChannelClient] secure session established")
+            # The device has connected to SailRoute correctly -> mark the running
+            # firmware VALID (idempotent, best-effort). A bad OTA that never reaches
+            # this point stays unvalidated and auto-reverts on the next reboot.
+            _ = socket.assigns.firmware_validator.()
             # Report current WiFi status once the session is live so the server
             # reflects the device's actual state on (re)connect.
             send(self(), :report_wifi_status)
