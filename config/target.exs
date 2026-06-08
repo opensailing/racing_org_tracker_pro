@@ -84,6 +84,11 @@ if nerves_hub_host && nerves_hub_key && nerves_hub_secret do
     connect: true,
     host: nerves_hub_host,
     fwup_public_keys: fwup_public_keys,
+    # Enable the NervesHub remote IEx "Console" (an IEx session against the running
+    # app, over the NervesHub connection). Off by default; we turn it on for remote
+    # diagnosis/management of a cellular-only device. (System Shell is the separate
+    # LocalShell/expty extension — a bash shell — already available.)
+    remote_iex: true,
     shared_secret: [
       product_key: nerves_hub_key,
       product_secret: nerves_hub_secret
