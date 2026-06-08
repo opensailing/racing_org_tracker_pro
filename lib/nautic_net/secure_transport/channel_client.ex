@@ -123,6 +123,12 @@ defmodule NauticNet.SecureTransport.ChannelClient do
       commands: Keyword.get(opts, :commands, NauticNet.Commands),
       session_holder: Keyword.get(opts, :session_holder, SessionHolder),
       wifi: normalize_wifi(Keyword.get(opts, :wifi, NauticNet.WiFiManager)),
+      # The per-state tracking config (damping + send-rate). `tracking` applies the
+      # server-pushed config (default NauticNet.Tracking.Config); `tracking_status`
+      # reports what is actually being applied (default NauticNet.Sampling). Both
+      # are {module, server} pairs (a bare module is used as both module + name).
+      tracking: normalize_collaborator(Keyword.get(opts, :tracking, NauticNet.Tracking.Config)),
+      tracking_status: normalize_collaborator(Keyword.get(opts, :tracking_status, NauticNet.Sampling)),
       firmware_validator: Keyword.get(opts, :firmware_validator, &NauticNet.FirmwareValidator.validate_on_connect/0),
       backoff_opts: Keyword.get(opts, :backoff, Backoff.defaults()),
       attempt: 0,
@@ -252,6 +258,16 @@ defmodule NauticNet.SecureTransport.ChannelClient do
     {:ok, socket}
   end
 
+  # Server pushes a per-state tracking config (damping + send-rate). Apply it through
+  # NauticNet.Tracking.Config (versioned, idempotent), then report what the device is
+  # actually applying back as "tracking_status". On an apply error we still report the
+  # current status so the server is not left stale, and we never crash the channel.
+  def handle_message(topic, "set_tracking", payload, socket) do
+    {_result, socket} = apply_tracking(payload, socket)
+    push(socket, topic, "tracking_status", tracking_status(socket))
+    {:ok, socket}
+  end
+
   # Server killed the session (key revoke / device revoke / transfer).
   def handle_message(_topic, "session_evicted", payload, socket) do
     Logger.warning("[ChannelClient] session evicted: #{inspect(payload)}")
@@ -332,6 +348,10 @@ defmodule NauticNet.SecureTransport.ChannelClient do
   defp normalize_wifi({module, server}) when is_atom(module), do: {module, server}
   defp normalize_wifi(module) when is_atom(module), do: {module, module}
 
+  # Same shape for the tracking collaborators (apply target + status source).
+  defp normalize_collaborator({module, server}) when is_atom(module), do: {module, server}
+  defp normalize_collaborator(module) when is_atom(module), do: {module, module}
+
   defp apply_wifi(payload, socket) do
     {module, server} = socket.assigns.wifi
     result = module.apply_config(server, payload)
@@ -368,6 +388,43 @@ defmodule NauticNet.SecureTransport.ChannelClient do
 
   defp maybe_put_applied_version(status, nil), do: status
   defp maybe_put_applied_version(status, version), do: Map.put(status, :applied_version, version)
+
+  # --- Tracking config collaborator ---
+
+  defp apply_tracking(payload, socket) do
+    {module, server} = socket.assigns.tracking
+    result = module.apply_config(server, payload)
+    {result, socket}
+  rescue
+    error ->
+      Logger.warning("[ChannelClient] Tracking apply_config failed: #{inspect(error)}")
+      {{:error, :apply_failed}, socket}
+  end
+
+  # Build the "tracking_status" the server allowlists: applied_version, active_state,
+  # active_rate_hz, active_damping_seconds, reported_at (ISO-8601). Reflects what the
+  # device is actually applying (from NauticNet.Sampling). Falls back to a minimal map
+  # if the status source is unavailable, and always stamps reported_at.
+  defp tracking_status(socket) do
+    {module, server} = socket.assigns.tracking_status
+
+    base =
+      try do
+        module.tracking_status(server)
+      rescue
+        error ->
+          Logger.warning("[ChannelClient] tracking_status read failed: #{inspect(error)}")
+          %{}
+      end
+
+    %{
+      applied_version: Map.get(base, :applied_version),
+      active_state: Map.get(base, :active_state),
+      active_rate_hz: Map.get(base, :active_rate_hz),
+      active_damping_seconds: Map.get(base, :active_damping_seconds),
+      reported_at: DateTime.utc_now() |> DateTime.to_iso8601()
+    }
+  end
 
   # The version that was just applied: prefer the version from the apply result,
   # else echo the payload's version. On error/unchanged we still echo the payload

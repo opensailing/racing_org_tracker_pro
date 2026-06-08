@@ -329,6 +329,110 @@ defmodule NauticNet.SecureTransport.ChannelClientTest do
     end
   end
 
+  # --- per-state tracking config (Phase 5): set_tracking / tracking_status ---
+
+  describe "set_tracking / tracking_status (SocketTest)" do
+    # A fake Tracking collaborator mirroring the NauticNet.Tracking.Config API
+    # surface the channel uses: apply_config/2 (records the call) + status/1.
+    defmodule FakeTracking do
+      use GenServer
+
+      def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
+
+      @impl true
+      def init(opts) do
+        {:ok,
+         %{
+           parent: Keyword.fetch!(opts, :parent),
+           status:
+             Keyword.get(opts, :status, %{
+               applied_version: 0,
+               active_state: :race,
+               active_rate_hz: 10.0,
+               active_damping_seconds: 0.5
+             }),
+           apply_result: Keyword.get(opts, :apply_result, {:ok, %{version: 0}})
+         }}
+      end
+
+      def apply_config(server, config), do: GenServer.call(server, {:apply_config, config})
+      def tracking_status(server), do: GenServer.call(server, :tracking_status)
+
+      @impl true
+      def handle_call({:apply_config, config}, _from, state) do
+        send(state.parent, {:apply_tracking_called, config})
+        {:reply, state.apply_result, state}
+      end
+
+      def handle_call(:tracking_status, _from, state), do: {:reply, state.status, state}
+    end
+
+    defp connect_tracking_client(ctx, tracking_opts) do
+      {:ok, holder} = start_supervised({SessionHolder, name: nil})
+      {:ok, tracking} = start_supervised({FakeTracking, [parent: self()] ++ tracking_opts})
+      topic = "device:" <> ctx.identity.fingerprint
+
+      client =
+        start_supervised!(
+          {ChannelClient,
+           name: nil,
+           auto_connect?: true,
+           test_mode?: true,
+           url: "wss://test.local/device_socket/websocket",
+           session_holder: holder,
+           tracking: {FakeTracking, tracking},
+           tracking_status: {FakeTracking, tracking},
+           keystore_opts: [base_path: ctx.base]}
+        )
+
+      connect_and_assert_join(client, ^topic, %{}, :ok)
+      {client, topic, tracking}
+    end
+
+    test "server set_tracking → apply_config called + tracking_status pushed", ctx do
+      {client, topic, _tracking} =
+        connect_tracking_client(ctx,
+          apply_result: {:ok, %{version: 0}},
+          status: %{applied_version: 0, active_state: :race, active_rate_hz: 10.0, active_damping_seconds: 0.5}
+        )
+
+      push(client, topic, "set_tracking", %{
+        "version" => 0,
+        "states" => %{
+          "pre_race" => %{"damping_seconds" => 2.0, "send_rate_hz" => 1.0},
+          "starting" => %{"damping_seconds" => 1.0, "send_rate_hz" => 5.0},
+          "race" => %{"damping_seconds" => 0.5, "send_rate_hz" => 10.0}
+        }
+      })
+
+      assert_receive {:apply_tracking_called, config}
+      assert config["version"] == 0
+      assert config["states"]["race"]["send_rate_hz"] == 10.0
+
+      assert_push(^topic, "tracking_status", status)
+      assert status.applied_version == 0
+      assert status.active_state == :race
+      assert status.active_rate_hz == 10.0
+      assert status.active_damping_seconds == 0.5
+      assert Map.has_key?(status, :reported_at)
+    end
+
+    test "set_tracking apply error → still pushes status (no crash)", ctx do
+      {client, topic, _tracking} =
+        connect_tracking_client(ctx,
+          apply_result: {:error, :malformed},
+          status: %{applied_version: 0, active_state: :pre_race, active_rate_hz: 1.0, active_damping_seconds: 2.0}
+        )
+
+      push(client, topic, "set_tracking", %{"version" => 9, "states" => %{}})
+
+      assert_receive {:apply_tracking_called, _config}
+      assert_push(^topic, "tracking_status", status)
+      assert Map.has_key?(status, :active_state)
+      assert Process.alive?(client)
+    end
+  end
+
   defp eventually(fun, retries \\ 50) do
     cond do
       fun.() ->

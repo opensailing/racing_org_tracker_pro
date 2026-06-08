@@ -54,6 +54,7 @@ defmodule NauticNet.Application do
     [
       commands_child(),
       NauticNet.Telemetry,
+      tracking_config_child(),
       {NauticNet.Sampling, name: NauticNet.Sampling},
       archive_child(),
       {NauticNet.Nav.Broadcaster, name: NauticNet.Nav.Broadcaster},
@@ -153,6 +154,25 @@ defmodule NauticNet.Application do
      name: NauticNet.Commands,
      device_id: NauticNet.boat_identifier(),
      store_dir: Application.get_env(:nautic_net_device, :assignment_directory)}
+  end
+
+  # Per-tracking-state damping + send-rate config pushed by the server over the WSS
+  # channel ("set_tracking"). It persists the config to /data (survives reboots) and,
+  # on apply, re-drives NauticNet.Sampling (which sets the Reporter flush interval +
+  # EWMA damping for the active state). Started in EVERY environment so Sampling can
+  # read it; cheap + idle with no config (Sampling falls back to safe defaults). Must
+  # start BEFORE Sampling.
+  defp tracking_config_child do
+    {NauticNet.Tracking.Config,
+     name: NauticNet.Tracking.Config,
+     store_dir: Application.get_env(:nautic_net_device, :tracking_directory),
+     on_apply: fn _config ->
+       try do
+         NauticNet.Sampling.reconfigure(NauticNet.Sampling)
+       catch
+         :exit, _ -> :ok
+       end
+     end}
   end
 
   # Durable local race archiving + reconciliation with SailRoute.

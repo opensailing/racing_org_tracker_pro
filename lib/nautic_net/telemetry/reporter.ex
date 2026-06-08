@@ -23,8 +23,27 @@ defmodule NauticNet.Telemetry.Reporter do
   use GenServer
   require Logger
 
+  alias NauticNet.Telemetry.Ewma
   alias Telemetry.Metrics.LastValue
   alias Telemetry.Metrics.Summary
+
+  # Per-signal EWMA smoothing spec, keyed by the metric NAME. Declares, for each
+  # numeric field of the measurement map, whether it is a :linear or :circular
+  # (wrapping, radians) quantity. Circular signals are smoothed via sin/cos so the
+  # 0 ⇄ 2π wrap is handled correctly; everything else is smoothed directly. Fields
+  # not listed here (e.g. :timestamp) are passed through untouched (last sample).
+  #
+  # Circular fields here: wind/COG/velocity angle, heading, attitude yaw — all
+  # headings/bearings in radians. Linear fields: speeds, magnitudes, depth, lat/lon,
+  # and attitude pitch/roll (bounded oscillations about 0, not wrapping).
+  @smoothing_specs %{
+    [:nautic_net, :heading, :rad] => %{value: :circular},
+    [:nautic_net, :speed, :water, :speed_m_s] => %{value: :linear},
+    [:nautic_net, :water_depth, :depth_m] => %{value: :linear},
+    [:nautic_net, :velocity, :ground, :vector] => %{angle: :circular, magnitude: :linear},
+    [:nautic_net, :attitude, :rad] => %{yaw: :circular, pitch: :linear, roll: :linear},
+    [:nautic_net, :gps, :position] => %{lat: :linear, lon: :linear}
+  }
 
   @doc """
   Starts the reporter.
@@ -46,7 +65,12 @@ defmodule NauticNet.Telemetry.Reporter do
       opts[:callback] ||
         raise ArgumentError, "the :callback option is required by #{inspect(__MODULE__)}"
 
-    init_args = %{metrics: metrics, callback: callback, flush_interval_ms: opts[:flush_interval_ms] || 1000}
+    init_args = %{
+      metrics: metrics,
+      callback: callback,
+      flush_interval_ms: opts[:flush_interval_ms] || 1000,
+      damping_seconds: opts[:damping_seconds] || 0.0
+    }
 
     GenServer.start_link(__MODULE__, init_args, server_opts)
   end
@@ -64,9 +88,18 @@ defmodule NauticNet.Telemetry.Reporter do
     GenServer.call(server, {:set_flush_interval, ms})
   end
 
+  @doc """
+  Set the EWMA damping time constant `τ` (seconds, ≥ 0) applied to each signal
+  before it is flushed. `0` ⇒ pass-through (no smoothing). Used by
+  `NauticNet.Sampling` to apply the active tracking state's `damping_seconds`.
+  """
+  def set_damping(server, tau) when is_number(tau) and tau >= 0 do
+    GenServer.call(server, {:set_damping, tau})
+  end
+
   @impl true
   @doc false
-  def init(%{metrics: metrics, callback: callback, flush_interval_ms: flush_interval_ms}) do
+  def init(%{metrics: metrics, callback: callback, flush_interval_ms: flush_interval_ms} = init_args) do
     Process.flag(:trap_exit, true)
     groups = Enum.group_by(metrics, & &1.event_name)
 
@@ -75,6 +108,12 @@ defmodule NauticNet.Telemetry.Reporter do
       LastValue => :ets.new(__MODULE__.LastValue, [:public, :duplicate_bag]),
       Summary => :ets.new(__MODULE__.Summary, [:public, :duplicate_bag])
     }
+
+    # Persistent per-signal EWMA smoother state, keyed by {metric_name, device_id}.
+    # Unlike the duplicate_bag buffers above (drained every flush), this carries the
+    # smoothed value + last-sample monotonic time ACROSS flushes so the time-constant
+    # low-pass is continuous. Owned by the GenServer; only read/written at flush.
+    smooth_table = :ets.new(__MODULE__.SmoothState, [:set, :private])
 
     # Attach Telemetry event handlers
     for {event, event_metrics} <- groups do
@@ -100,15 +139,22 @@ defmodule NauticNet.Telemetry.Reporter do
 
     state = %{
       tables: tables,
+      smooth_table: smooth_table,
       events: Map.keys(groups),
       callback: callback,
       interval_metrics: interval_metrics,
       flush_interval_ms: flush_interval_ms,
+      # EWMA time constant (seconds) applied at flush; 0 = pass-through. Driven by
+      # NauticNet.Sampling via set_damping/2 from the active tracking state.
+      damping_seconds: opts_damping(init_args),
       timer_ref: timer_ref
     }
 
     {:ok, state}
   end
+
+  defp opts_damping(%{damping_seconds: tau}) when is_number(tau) and tau >= 0, do: tau
+  defp opts_damping(_), do: 0.0
 
   @impl true
   def handle_call({:report, metric}, _, state) do
@@ -124,6 +170,14 @@ defmodule NauticNet.Telemetry.Reporter do
     {:ok, :cancel} = :timer.cancel(state.timer_ref)
     {:ok, timer_ref} = :timer.send_interval(ms, :flush_all)
     {:reply, :ok, %{state | flush_interval_ms: ms, timer_ref: timer_ref}}
+  end
+
+  def handle_call({:set_damping, tau}, _, %{damping_seconds: tau} = state) do
+    {:reply, :ok, state}
+  end
+
+  def handle_call({:set_damping, tau}, _, state) do
+    {:reply, :ok, %{state | damping_seconds: tau / 1}}
   end
 
   @impl true
@@ -143,14 +197,82 @@ defmodule NauticNet.Telemetry.Reporter do
       |> Enum.uniq()
 
     for device_id <- device_ids do
-      measurements =
-        rows
-        |> Enum.filter(fn {_, _, %{device_id: id}} -> id == device_id end)
-        |> Enum.map(fn {_, m, _} -> m end)
+      device_rows = Enum.filter(rows, fn {_, _, %{device_id: id}} -> id == device_id end)
 
-      report_on(metric, device_id, measurements, state.callback)
+      case smoothing_spec(metric) do
+        nil ->
+          # No EWMA spec (e.g. Summary metrics, or τ has no effect): existing path.
+          measurements = Enum.map(device_rows, fn {_, m, _} -> m end)
+          report_on(metric, device_id, measurements, state.callback)
+
+        spec ->
+          smooth_and_report(metric, device_id, device_rows, spec, state)
+      end
     end
   end
+
+  # A LastValue metric with a registered smoothing spec is EWMA low-passed: the
+  # buffered raw samples are folded (in monotonic-timestamp order) into the carried
+  # smoother state and the resulting smoothed measurement map is emitted. With τ = 0
+  # this collapses to pass-through (the last sample), matching the old last_value.
+  defp smoothing_spec(%LastValue{name: name}), do: Map.get(@smoothing_specs, name)
+  defp smoothing_spec(_metric), do: nil
+
+  defp smooth_and_report(_metric, _device_id, [], _spec, _state), do: :noop
+
+  defp smooth_and_report(metric, device_id, rows, spec, state) do
+    key = {metric.name, device_id}
+    tau = state.damping_seconds
+
+    # Samples in time order: prefer the monotonic timestamp from metadata, falling
+    # back to insertion order (rows come back in insertion order from the bag).
+    samples =
+      rows
+      |> Enum.map(fn {_, measurement, metadata} -> {mono_ms(metadata), measurement} end)
+      |> Enum.sort_by(&elem(&1, 0))
+
+    prior = lookup_smooth(state.smooth_table, key)
+    {smoothed, last_measurement, next_state} = fold_samples(samples, spec, tau, prior)
+
+    :ets.insert(state.smooth_table, {key, next_state})
+
+    # Emit the smoothed numeric fields, but keep the non-numeric fields (e.g.
+    # :timestamp) from the most recent raw sample.
+    value = Map.merge(last_measurement, smoothed)
+    state.callback.(metric.name, device_id, value)
+  end
+
+  # Fold each sample's numeric fields through their per-field EWMA, carrying the
+  # per-field smoother state forward. Returns {smoothed_fields, last_raw_measurement,
+  # next_field_states}.
+  defp fold_samples(samples, spec, tau, prior) do
+    Enum.reduce(samples, {%{}, %{}, prior}, fn {now_ms, measurement}, {_acc, _last, states} ->
+      {smoothed, next_states} =
+        Enum.reduce(spec, {%{}, states}, fn {field, kind}, {sm, st} ->
+          case Map.fetch(measurement, field) do
+            {:ok, x} when is_number(x) ->
+              field_state = Map.get(st, field)
+              {value, new_field_state} = Ewma.update(field_state, x, now_ms, tau, kind)
+              {Map.put(sm, field, value), Map.put(st, field, new_field_state)}
+
+            _ ->
+              {sm, st}
+          end
+        end)
+
+      {smoothed, measurement, next_states}
+    end)
+  end
+
+  defp lookup_smooth(table, key) do
+    case :ets.lookup(table, key) do
+      [{^key, states}] -> states
+      [] -> %{}
+    end
+  end
+
+  defp mono_ms(%{timestamp_monotonic_ms: ms}) when is_integer(ms), do: ms
+  defp mono_ms(_metadata), do: System.monotonic_time(:millisecond)
 
   @impl true
   def terminate(_, state) do

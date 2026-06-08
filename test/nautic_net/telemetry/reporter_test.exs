@@ -88,6 +88,68 @@ defmodule NauticNet.Telemetry.ReporterTest do
     end
   end
 
+  describe "set_damping/2 EWMA smoothing of signal measurements" do
+    # The real signals carry measurement MAPS like %{timestamp, value} (scalar) or
+    # %{timestamp, angle, magnitude} (vector). With damping the reporter low-passes
+    # the numeric fields before flushing.
+
+    test "tau = 0 is pass-through: the last sample is reported verbatim (linear)" do
+      pid =
+        start_reporter(
+          [last_value([:nautic_net, :speed, :water, :speed_m_s], reporter_options: [every_ms: 10_000])],
+          flush_interval_ms: 10_000
+        )
+
+      assert :ok = NauticNet.Telemetry.Reporter.set_damping(pid, 0.0)
+
+      emit_scalar_full([:nautic_net, :speed, :water], :speed_m_s, %{value: 1.0}, 0)
+      emit_scalar_full([:nautic_net, :speed, :water], :speed_m_s, %{value: 7.0}, 100)
+
+      flush(pid)
+      assert_receive {:report, [:nautic_net, :speed, :water, :speed_m_s], %{value: 7.0}}
+    end
+
+    test "a step input on a scalar field converges toward, but lags, the new value" do
+      pid =
+        start_reporter([last_value([:nautic_net, :speed, :water, :speed_m_s], reporter_options: [every_ms: 10_000])],
+          flush_interval_ms: 10_000
+        )
+
+      # 1 second time constant.
+      assert :ok = NauticNet.Telemetry.Reporter.set_damping(pid, 1.0)
+
+      # Seed at 0, then a held step to 10 over 1 tau (10 x 100 ms samples).
+      emit_scalar_full([:nautic_net, :speed, :water], :speed_m_s, %{value: 0.0}, 0)
+      for n <- 1..10, do: emit_scalar_full([:nautic_net, :speed, :water], :speed_m_s, %{value: 10.0}, n * 100)
+
+      flush(pid)
+      assert_receive {:report, [:nautic_net, :speed, :water, :speed_m_s], %{value: v}}
+      # After one tau, ~63% of the way from 0 to 10.
+      assert v > 4.0 and v < 9.0
+    end
+
+    test "a circular angle field is smoothed across the 0/2π wrap (vector signal)" do
+      pid =
+        start_reporter([last_value([:nautic_net, :velocity, :ground, :vector], reporter_options: [every_ms: 10_000])],
+          flush_interval_ms: 10_000
+        )
+
+      assert :ok = NauticNet.Telemetry.Reporter.set_damping(pid, 1.0)
+
+      eps = 0.05
+      # Seed just below 2π, then feed angles just above 0 -> must NOT swing toward π.
+      emit_vector([:nautic_net, :velocity, :ground], :vector, %{angle: 2 * :math.pi() - eps, magnitude: 5.0}, 0)
+
+      for n <- 1..50,
+          do: emit_vector([:nautic_net, :velocity, :ground], :vector, %{angle: eps, magnitude: 5.0}, n * 100)
+
+      flush(pid)
+      assert_receive {:report, [:nautic_net, :velocity, :ground, :vector], %{angle: angle}}
+      offset = :math.atan2(:math.sin(angle), :math.cos(angle))
+      assert abs(offset) < 0.3, "expected smoothed angle near the wrap, got #{angle}"
+    end
+  end
+
   defp start_reporter(metrics, opts \\ []) do
     test_pid = self()
 
@@ -104,5 +166,27 @@ defmodule NauticNet.Telemetry.ReporterTest do
 
   defp telemetry_execute_value(value) do
     :telemetry.execute([:some, :metric], %{value: value}, %{device_id: {123, 456}})
+  end
+
+  # Force a synchronous flush + give the cast/report a beat.
+  defp flush(pid) do
+    send(pid, :flush_all)
+    # Round-trip a call so :flush_all has been processed before we assert.
+    :sys.get_state(pid)
+    :ok
+  end
+
+  defp emit_scalar_full(event, field, value_map, mono_ms) do
+    :telemetry.execute(event, %{field => Map.put(value_map, :timestamp, DateTime.utc_now())}, %{
+      device_id: {1, 2},
+      timestamp_monotonic_ms: mono_ms
+    })
+  end
+
+  defp emit_vector(event, field, %{angle: _, magnitude: _} = v, mono_ms) do
+    :telemetry.execute(event, %{field => Map.put(v, :timestamp, DateTime.utc_now())}, %{
+      device_id: {1, 2},
+      timestamp_monotonic_ms: mono_ms
+    })
   end
 end
