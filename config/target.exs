@@ -61,23 +61,35 @@ config :nautic_net_device,
 # still boots normally.
 #
 # Provision a Product in NervesHub and set:
-#   NERVES_HUB_HOST            e.g. "your.nerveshub.host" (or NervesCloud host)
-#   NERVES_HUB_PRODUCT_KEY     from the Product's "Shared Secrets" settings
-#   NERVES_HUB_PRODUCT_SECRET  from the Product's "Shared Secrets" settings
+#   NERVES_HUB_HOST    the device-endpoint hostname of your NervesHub instance
+#   NERVES_HUB_KEY     from the Product's "Shared Secrets" settings
+#   NERVES_HUB_SECRET  from the Product's "Shared Secrets" settings
 nerves_hub_host = System.get_env("NERVES_HUB_HOST")
-nerves_hub_product_key = System.get_env("NERVES_HUB_PRODUCT_KEY")
-nerves_hub_product_secret = System.get_env("NERVES_HUB_PRODUCT_SECRET")
+nerves_hub_key = System.get_env("NERVES_HUB_KEY")
+nerves_hub_secret = System.get_env("NERVES_HUB_SECRET")
 
-if nerves_hub_host && nerves_hub_product_key && nerves_hub_product_secret do
+# Firmware-update signature verification. NervesHubLink applies an OTA only if the
+# downloaded `.fw` is signed by one of these fwup public keys (sign with the matching
+# `fwup-key.priv` via `fwup -S -s fwup-key.priv ...` — see the release flow). Because
+# the key is baked into the firmware and `request_fwup_public_keys` is left at its
+# default `false`, the device trusts ONLY this pinned key and never asks the server to
+# hand it a verification key — the server cannot substitute its own. The list supports
+# overlap for rotation: bake the new key alongside the old, OTA that out, then rotate
+# the signing key and later drop the old entry. Public keys are safe to commit; the
+# private half lives only in 1Password.
+fwup_public_keys = ["v2Qo/t6aqBf0nAJu6P9HPDzttBIyiSTOh8CIw4JTXQw="]
+
+if nerves_hub_host && nerves_hub_key && nerves_hub_secret do
   config :nerves_hub_link,
     connect: true,
     host: nerves_hub_host,
+    fwup_public_keys: fwup_public_keys,
     shared_secret: [
-      product_key: nerves_hub_product_key,
-      product_secret: nerves_hub_product_secret
+      product_key: nerves_hub_key,
+      product_secret: nerves_hub_secret
     ]
 else
-  config :nerves_hub_link, connect: false
+  config :nerves_hub_link, connect: false, fwup_public_keys: fwup_public_keys
 end
 
 config :logger, level: :info

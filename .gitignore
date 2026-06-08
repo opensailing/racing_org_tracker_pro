@@ -26,3 +26,10 @@ erl_crash.dump
 
 # editor swap files
 *.swp
+
+# fwup firmware signing keys. fwup-key.priv is a long-lived SECRET (back it up in
+# 1Password); the .pub is registered with the NervesHub org + baked into firmware.
+fwup-key.priv
+fwup-key.pub
+*.fw
+signed*.fw
