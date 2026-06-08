@@ -33,6 +33,7 @@ defmodule NauticNet.SecureTransport.BootProvisionerTest do
     fn %Tesla.Env{} = env ->
       assert env.method == :post
       assert String.ends_with?(env.url, "/api/devices/register")
+
       {:ok,
        %Tesla.Env{
          env
@@ -124,7 +125,7 @@ defmodule NauticNet.SecureTransport.BootProvisionerTest do
     refute BootProvisioner.registered?(base_path: base)
   end
 
-  test "the GenServer runs once then stops :normal", %{base: base} do
+  test "the GenServer registers then stops :normal", %{base: base} do
     {:ok, pid} =
       BootProvisioner.start_link(
         name: nil,
@@ -135,5 +136,38 @@ defmodule NauticNet.SecureTransport.BootProvisionerTest do
 
     ref = Process.monitor(pid)
     assert_receive {:DOWN, ^ref, :process, ^pid, :normal}, 1_000
+  end
+
+  test "RETRIES on a failed registration until it succeeds, then stops :normal" do
+    {:ok, counter} = Agent.start_link(fn -> 0 end)
+
+    # Fail the first two attempts (e.g. bad clock / network not up yet), then succeed.
+    provision_fun = fn _opts ->
+      n = Agent.get_and_update(counter, fn n -> {n, n + 1} end)
+      if n < 2, do: {:error, :register_rejected}, else: {:ok, %{}}
+    end
+
+    {:ok, pid} =
+      BootProvisioner.start_link(name: nil, provision_fun: provision_fun, retry_ms: 5, max_retry_ms: 5)
+
+    ref = Process.monitor(pid)
+    assert_receive {:DOWN, ^ref, :process, ^pid, :normal}, 1_000
+    assert Agent.get(counter, & &1) == 3
+  end
+
+  test "does NOT retry when not configured (no pinned key) — terminal, attempted once" do
+    parent = self()
+
+    provision_fun = fn _opts ->
+      send(parent, :attempted)
+      {:error, :not_configured}
+    end
+
+    {:ok, _pid} =
+      BootProvisioner.start_link(name: nil, provision_fun: provision_fun, retry_ms: 5)
+
+    assert_receive :attempted, 500
+    # `:not_configured` is terminal — it must NOT schedule another attempt.
+    refute_receive :attempted, 100
   end
 end

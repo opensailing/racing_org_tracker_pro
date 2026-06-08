@@ -21,19 +21,22 @@ defmodule NauticNet.SecureTransport.BootProvisioner do
 
   ## Safety / gating
 
-  This is a transient, self-terminating GenServer (`restart: :transient`): it does
-  its work in `handle_continue/2` then stops `:normal`, so it never loops. It is
+  This is a transient GenServer (`restart: :transient`) that RETRIES registration with
+  capped backoff until it succeeds, then stops `:normal`. A single boot-time attempt is
+  unreliable — at boot the cellular link and the RTC-less clock are still coming up, and
+  registration is a ±120s time-windowed proof, so an early attempt is rejected — hence
+  the retry, so the device self-provisions once the network + clock are ready. It is
   added to the supervision tree ONLY on the real device target AND when the pinned
   server public key is configured (`ServerIdentity.configured?` — the single
   secure-transport enable). Even when started it is defensive:
 
     * Server not pinned (`ServerIdentity` unconfigured) -> no-op, stop (there is no
-      trusted server to register against yet).
+      trusted server to register against yet; retrying can't help).
     * Already registered (a register marker exists) -> no-op, stop (re-register would
       be harmless/idempotent, but we avoid the needless round trip).
-    * A register REJECTION or transport error is LOGGED, not crashed: the device
-      simply stays unregistered (ChannelClient remains idle) until the next boot. We
-      deliberately do NOT crash-loop.
+    * A register REJECTION or transport error is LOGGED and RETRIED (capped backoff):
+      the device stays unregistered (ChannelClient idle) until a later attempt
+      succeeds. The backoff is capped, so it never hot-loops.
 
   There are no out-of-band provisioning inputs anymore: the only required config is
   the pinned server public key (`ServerIdentity`) and the API endpoint, both already
@@ -57,7 +60,7 @@ defmodule NauticNet.SecureTransport.BootProvisioner do
     GenServer.start_link(__MODULE__, opts, gen_opts)
   end
 
-  @doc "Transient child spec — runs once then stops `:normal` (never restarts on normal exit)."
+  @doc "Transient child spec — retries until registered, then stops `:normal` (no restart on normal exit)."
   @spec child_spec(keyword()) :: Supervisor.child_spec()
   def child_spec(opts) do
     %{
@@ -69,15 +72,61 @@ defmodule NauticNet.SecureTransport.BootProvisioner do
     }
   end
 
+  @default_retry_ms 10_000
+  @max_retry_ms 60_000
+
   @impl true
   def init(opts) do
-    {:ok, opts, {:continue, :provision}}
+    {:ok, %{opts: opts, attempt: 0}, {:continue, :attempt}}
   end
 
   @impl true
-  def handle_continue(:provision, opts) do
-    _ = provision(opts)
-    {:stop, :normal, opts}
+  def handle_continue(:attempt, state), do: attempt(state)
+
+  @impl true
+  def handle_info(:attempt, state), do: attempt(state)
+
+  # Registration is RETRIED with capped backoff until it succeeds. A single boot-time
+  # attempt is unreliable: at boot the cellular link and the RTC-less clock are still
+  # coming up, and registration is a ±120s time-windowed proof — so an early attempt is
+  # rejected (or the POST fails before the network is up). We keep retrying so the
+  # device self-provisions once the network + clock are ready, then stop `:normal`.
+  defp attempt(%{opts: opts} = state) do
+    provision_fun = Keyword.get(opts, :provision_fun, &provision/1)
+
+    case provision_fun.(opts) do
+      {:ok, _} ->
+        {:stop, :normal, state}
+
+      {:error, :not_configured} ->
+        # No pinned server key — nothing to register against; retrying is pointless.
+        {:stop, :normal, state}
+
+      {:error, reason} ->
+        next = state.attempt + 1
+        delay = retry_delay(next, opts)
+
+        Logger.info(
+          "[BootProvisioner] not registered yet (#{inspect(reason)}); retrying in #{delay}ms " <>
+            "(attempt #{next}) — waiting for network + clock"
+        )
+
+        schedule_retry(delay, opts)
+        {:noreply, %{state | attempt: next}}
+    end
+  end
+
+  defp schedule_retry(delay, opts) do
+    case Keyword.get(opts, :scheduler) do
+      fun when is_function(fun, 1) -> fun.(delay)
+      _ -> Process.send_after(self(), :attempt, delay)
+    end
+  end
+
+  defp retry_delay(attempt, opts) do
+    base = Keyword.get(opts, :retry_ms, @default_retry_ms)
+    max = Keyword.get(opts, :max_retry_ms, @max_retry_ms)
+    min(base * attempt, max)
   end
 
   @doc """
