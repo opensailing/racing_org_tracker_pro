@@ -129,6 +129,10 @@ defmodule NauticNet.SecureTransport.ChannelClient do
       # are {module, server} pairs (a bare module is used as both module + name).
       tracking: normalize_collaborator(Keyword.get(opts, :tracking, NauticNet.Tracking.Config)),
       tracking_status: normalize_collaborator(Keyword.get(opts, :tracking_status, NauticNet.Sampling)),
+      # The on-device compute engine: applies the server-pushed computed-value defs
+      # ("set_computed_values") and reports applied_version + active_count back as
+      # "computed_values_status". A {module, server} pair (bare module = both).
+      compute: normalize_collaborator(Keyword.get(opts, :compute, NauticNet.Compute.Engine)),
       firmware_validator: Keyword.get(opts, :firmware_validator, &NauticNet.FirmwareValidator.validate_on_connect/0),
       backoff_opts: Keyword.get(opts, :backoff, Backoff.defaults()),
       attempt: 0,
@@ -265,6 +269,16 @@ defmodule NauticNet.SecureTransport.ChannelClient do
   def handle_message(topic, "set_tracking", payload, socket) do
     {_result, socket} = apply_tracking(payload, socket)
     push(socket, topic, "tracking_status", tracking_status(socket))
+    {:ok, socket}
+  end
+
+  # Server pushes the computed-value definitions. Apply them through
+  # NauticNet.Compute.Engine (versioned, idempotent), then report applied_version +
+  # active_count back as "computed_values_status". On an apply error we still report
+  # the current status so the server is not left stale, and we never crash the channel.
+  def handle_message(topic, "set_computed_values", payload, socket) do
+    {_result, socket} = apply_computed(payload, socket)
+    push(socket, topic, "computed_values_status", computed_values_status(socket))
     {:ok, socket}
   end
 
@@ -422,6 +436,41 @@ defmodule NauticNet.SecureTransport.ChannelClient do
       active_state: Map.get(base, :active_state),
       active_rate_hz: Map.get(base, :active_rate_hz),
       active_damping_seconds: Map.get(base, :active_damping_seconds),
+      reported_at: DateTime.utc_now() |> DateTime.to_iso8601()
+    }
+  end
+
+  # --- Computed-values collaborator (Phase 7 compute engine) ---
+
+  defp apply_computed(payload, socket) do
+    {module, server} = socket.assigns.compute
+    result = module.apply_config(server, payload)
+    {result, socket}
+  rescue
+    error ->
+      Logger.warning("[ChannelClient] Compute apply_config failed: #{inspect(error)}")
+      {{:error, :apply_failed}, socket}
+  end
+
+  # Build the "computed_values_status" the server allowlists: applied_version +
+  # active_count (number of currently-valid computed values) + reported_at (ISO-8601).
+  # broadcasting/streaming are Phase 8/10 (omitted here). Falls back to a minimal map
+  # if the engine is unavailable, and always stamps reported_at.
+  defp computed_values_status(socket) do
+    {module, server} = socket.assigns.compute
+
+    base =
+      try do
+        module.status(server)
+      rescue
+        error ->
+          Logger.warning("[ChannelClient] computed_values status read failed: #{inspect(error)}")
+          %{}
+      end
+
+    %{
+      applied_version: Map.get(base, :applied_version),
+      active_count: Map.get(base, :active_count, 0),
       reported_at: DateTime.utc_now() |> DateTime.to_iso8601()
     }
   end

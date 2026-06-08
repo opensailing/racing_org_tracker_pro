@@ -51,7 +51,8 @@ config :nautic_net_device,
   data_set_directory: "/data/datasets",
   assignment_directory: "/data/assignment",
   race_archive_directory: "/data/races",
-  tracking_directory: "/data/tracking"
+  tracking_directory: "/data/tracking",
+  computed_values_directory: "/data/computed_values"
 
 # NervesHub remote management (OTA firmware updates + remote console).
 #

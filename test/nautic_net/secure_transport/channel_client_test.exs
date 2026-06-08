@@ -433,6 +433,118 @@ defmodule NauticNet.SecureTransport.ChannelClientTest do
     end
   end
 
+  # --- computed values (Phase 7): set_computed_values / computed_values_status ---
+
+  describe "set_computed_values / computed_values_status (SocketTest)" do
+    # A fake Compute.Engine collaborator mirroring the API the channel uses:
+    # apply_config/2 (records the call) + status/1.
+    defmodule FakeCompute do
+      use GenServer
+
+      def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
+
+      @impl true
+      def init(opts) do
+        {:ok,
+         %{
+           parent: Keyword.fetch!(opts, :parent),
+           status: Keyword.get(opts, :status, %{applied_version: 0, active_count: 2}),
+           apply_result: Keyword.get(opts, :apply_result, {:ok, %{version: 0}})
+         }}
+      end
+
+      def apply_config(server, config), do: GenServer.call(server, {:apply_config, config})
+      def status(server), do: GenServer.call(server, :status)
+
+      @impl true
+      def handle_call({:apply_config, config}, _from, state) do
+        send(state.parent, {:apply_computed_called, config})
+        {:reply, state.apply_result, state}
+      end
+
+      def handle_call(:status, _from, state), do: {:reply, state.status, state}
+    end
+
+    defp connect_compute_client(ctx, compute_opts) do
+      {:ok, holder} = start_supervised({SessionHolder, name: nil})
+      {:ok, compute} = start_supervised({FakeCompute, [parent: self()] ++ compute_opts})
+      topic = "device:" <> ctx.identity.fingerprint
+
+      client =
+        start_supervised!(
+          {ChannelClient,
+           name: nil,
+           auto_connect?: true,
+           test_mode?: true,
+           url: "wss://test.local/device_socket/websocket",
+           session_holder: holder,
+           compute: {FakeCompute, compute},
+           keystore_opts: [base_path: ctx.base]}
+        )
+
+      connect_and_assert_join(client, ^topic, %{}, :ok)
+      {client, topic, compute}
+    end
+
+    test "server set_computed_values → apply_config called + computed_values_status pushed", ctx do
+      {client, topic, _compute} =
+        connect_compute_client(ctx,
+          apply_result: {:ok, %{version: 3}},
+          status: %{applied_version: 3, active_count: 2}
+        )
+
+      push(client, topic, "set_computed_values", %{
+        "version" => 3,
+        "values" => [
+          %{
+            "id" => "abc",
+            "name" => "AWS x2",
+            "definition_type" => "expression",
+            "library_key" => nil,
+            "input_bindings" => %{},
+            "rpn" => [%{"signal" => "apparent_wind_speed"}, %{"const" => 2.0}, %{"op" => "*"}],
+            "signals" => ["apparent_wind_speed"],
+            "output_pgn" => 128_259,
+            "output_field" => "speed_water_referenced",
+            "output_reference" => nil,
+            "output_unit" => "m/s",
+            "output_instance" => nil,
+            "damping_seconds" => 0.5,
+            "broadcast_rate_hz" => 2.0,
+            "broadcast_enabled" => true,
+            "stream_to_backend" => true
+          }
+        ]
+      })
+
+      assert_receive {:apply_computed_called, config}
+      assert config["version"] == 3
+      assert [value] = config["values"]
+      assert value["id"] == "abc"
+
+      assert_push(^topic, "computed_values_status", status)
+      assert status.applied_version == 3
+      assert status.active_count == 2
+      assert Map.has_key?(status, :reported_at)
+    end
+
+    test "set_computed_values apply error → still pushes status (no crash)", ctx do
+      {client, topic, _compute} =
+        connect_compute_client(ctx,
+          apply_result: {:error, :malformed},
+          status: %{applied_version: 0, active_count: 0}
+        )
+
+      push(client, topic, "set_computed_values", %{"version" => 9, "values" => "bad"})
+
+      assert_receive {:apply_computed_called, _config}
+      assert_push(^topic, "computed_values_status", status)
+      assert Map.has_key?(status, :active_count)
+      assert Map.has_key?(status, :applied_version)
+      assert Process.alive?(client)
+    end
+  end
+
   defp eventually(fun, retries \\ 50) do
     cond do
       fun.() ->

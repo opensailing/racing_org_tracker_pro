@@ -55,6 +55,7 @@ defmodule NauticNet.Application do
       commands_child(),
       NauticNet.Telemetry,
       tracking_config_child(),
+      compute_engine_child(),
       {NauticNet.Sampling, name: NauticNet.Sampling},
       archive_child(),
       {NauticNet.Nav.Broadcaster, name: NauticNet.Nav.Broadcaster},
@@ -173,6 +174,20 @@ defmodule NauticNet.Application do
          :exit, _ -> :ok
        end
      end}
+  end
+
+  # On-device compute engine (Phase 7): receives user-defined computed-value
+  # definitions from the server over the WSS channel ("set_computed_values"),
+  # subscribes to decoded telemetry to keep the current value of each source signal,
+  # and recomputes each computed value when one of its sources changes — evaluating
+  # both free-form expressions and the native library calcs (true wind / VMG / VMC).
+  # It persists the defs to /data (survives reboots) and holds the latest result per
+  # def for Phase 8 (N2K broadcast) to consume via current_values/1. Started in EVERY
+  # environment so the channel + Phase 8 can read it; cheap + idle with no defs. Must
+  # start AFTER Telemetry (it attaches :telemetry handlers).
+  defp compute_engine_child do
+    {NauticNet.Compute.Engine,
+     name: NauticNet.Compute.Engine, store_dir: Application.get_env(:nautic_net_device, :computed_values_directory)}
   end
 
   # Durable local race archiving + reconciliation with SailRoute.
