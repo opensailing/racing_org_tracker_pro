@@ -57,6 +57,17 @@ defmodule NauticNet.Device.MixProject do
       {:nerves_hub_link, "~> 2.12", targets: @all_device_targets},
       {:castore, "~> 1.0", targets: @all_device_targets},
 
+      # NervesHub Device Extensions (negotiated at runtime; also allow them at the
+      # product level in NervesHub). Health + Geo ship inside nerves_hub_link and are
+      # always available. LocalShell is only added to the extension set when :expty is
+      # compiled in, and the Health extension uses :alarmist for richer alarm reporting
+      # (it otherwise falls back to the OTP :alarm_handler). Both are optional deps of
+      # nerves_hub_link, so we depend on them explicitly. NOTE: nerves_hub_link decides
+      # LocalShell availability at ITS compile time via Code.ensure_loaded?(ExPTY), so
+      # after adding :expty force a recompile: `mix deps.compile nerves_hub_link --force`.
+      {:expty, "~> 0.2.1", targets: @all_device_targets},
+      {:alarmist, "~> 0.3", targets: @all_device_targets},
+
       # Slipstream powers the device's outbound, CGNAT-friendly WSS command
       # channel to SailRoute (NauticNet.SecureTransport.ChannelClient). It is
       # already resolved transitively via :nerves_hub_link (1.2.2 in mix.lock);
