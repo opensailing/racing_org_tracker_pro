@@ -26,6 +26,28 @@ defmodule NauticNet.WiFiPowerTest do
     end
   end
 
+  describe "block/1 and unblock/1" do
+    test "block/1 soft-blocks the radio (injectable, best-effort)" do
+      parent = self()
+      assert :ok = WiFiPower.block(rfkill_fun: fn -> send(parent, :blocked) end)
+      assert_received :blocked
+    end
+
+    test "unblock/1 un-soft-blocks the radio (injectable, best-effort)" do
+      parent = self()
+      assert :ok = WiFiPower.unblock(rfkill_unblock_fun: fn -> send(parent, :unblocked) end)
+      assert_received :unblocked
+    end
+
+    test "block/1 still returns :ok if the step raises (best-effort)" do
+      assert :ok = WiFiPower.block(rfkill_fun: fn -> raise "no sysfs" end)
+    end
+
+    test "unblock/1 still returns :ok if the step raises (best-effort)" do
+      assert :ok = WiFiPower.unblock(rfkill_unblock_fun: fn -> raise "no sysfs" end)
+    end
+  end
+
   describe "GenServer lifecycle" do
     test "init/1 schedules the power-down via handle_continue" do
       assert {:ok, _opts, {:continue, :disable}} = WiFiPower.init([])

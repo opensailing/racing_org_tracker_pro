@@ -54,20 +54,48 @@ defmodule NauticNet.WiFiPower do
     :ok
   end
 
+  @doc """
+  rfkill SOFT-BLOCK the Wi-Fi radio (radio off, battery save) and bring `wlan0`
+  down. Same effect as `disable/1`, named for the `NauticNet.WiFiManager`
+  reconcile path. Best-effort: a failing step is logged and never raises.
+
+  Side effects are injectable for tests (same opts as `disable/1`).
+  """
+  @spec block(keyword()) :: :ok
+  def block(opts \\ []), do: disable(opts)
+
+  @doc """
+  rfkill UN-block the Wi-Fi radio so it can associate again (the inverse of
+  `block/1`). Writes "0" to every `wlan`-type radio's `/sys/class/rfkill/*/soft`.
+  Bringing the link back up / associating is left to VintageNet's reconfigure.
+  Best-effort: a failing step is logged and never raises.
+
+  Side effects are injectable for tests:
+    * `:rfkill_unblock_fun` — 0-arity, un-soft-blocks the wlan radios (default: sysfs writes)
+  """
+  @spec unblock(keyword()) :: :ok
+  def unblock(opts \\ []) do
+    run(Keyword.get(opts, :rfkill_unblock_fun, &rfkill_unblock_wlan/0), "rfkill-unblock")
+    :ok
+  end
+
   defp run(fun, label) do
     fun.()
   rescue
     e -> Logger.warning("[WiFiPower] #{label} step failed: #{inspect(e)}")
   end
 
-  defp rfkill_block_wlan do
+  defp rfkill_block_wlan, do: rfkill_set_wlan("1", "soft-blocked", "(wlan radio off)")
+  defp rfkill_unblock_wlan, do: rfkill_set_wlan("0", "un-soft-blocked", "(wlan radio on)")
+
+  defp rfkill_set_wlan(value, verb, suffix) do
     case File.ls(@rfkill_dir) do
       {:ok, nodes} ->
         for node <- nodes, wlan_radio?(node) do
           path = Path.join([@rfkill_dir, node, "soft"])
 
-          case File.write(path, "1") do
-            :ok -> Logger.info("[WiFiPower] rfkill soft-blocked #{node} (wlan radio off)")
+          case File.write(path, value) do
+            :ok -> Logger.info("[WiFiPower] rfkill #{verb} #{node} #{suffix}")
             {:error, reason} -> Logger.warning("[WiFiPower] rfkill #{node} failed: #{inspect(reason)}")
           end
         end

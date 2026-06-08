@@ -64,7 +64,7 @@ defmodule NauticNet.Application do
       {NauticNet.WebClients.UDPClient, udp_config()},
       {NauticNet.DataSetRecorder, chunk_every: @max_unfragmented_udp_payload_size},
       {NauticNet.DataSetUploader, via: :udp}
-    ] ++ wifi_power_children(target) ++ secure_transport_children(target)
+    ] ++ wifi_manager_children(target) ++ secure_transport_children(target)
   end
 
   # Product: Base station receiver node for nautic_net_tracker_mini
@@ -76,16 +76,20 @@ defmodule NauticNet.Application do
       {NauticNet.DataSetRecorder, chunk_every: @max_unfragmented_udp_payload_size},
       {NauticNet.DataSetUploader, via: :udp},
       NauticNet.BaseStation
-    ] ++ wifi_power_children(target) ++ secure_transport_children(target)
+    ] ++ wifi_manager_children(target) ++ secure_transport_children(target)
   end
 
-  # Battery: on a real device target built WITHOUT Wi-Fi credentials (`:wifi_enabled`
-  # false — see config/target.exs), power down the Wi-Fi radio at boot so it does not
-  # draw current on a cellular-only deployment. The one-shot, self-terminating
-  # WiFiPower task does it. Never started on host/test or on a Wi-Fi-enabled build.
-  defp wifi_power_children(target) do
-    if real_target?(target) and not wifi_enabled?() do
-      [NauticNet.WiFiPower]
+  # Wi-Fi: on a real device target, `NauticNet.WiFiManager` OWNS wlan0 at runtime.
+  # It is ALWAYS started on a real target and decides everything internally: on boot
+  # it reconciles the DESIRED state persisted to /data (which survives reboots and
+  # takes precedence) against the compile-time `:wifi_enabled` default baked into
+  # config/target.exs, which it receives here. With no persisted state and
+  # `:wifi_enabled` false, it reproduces the old WiFiPower behaviour (radio off for
+  # battery save). It reuses `NauticNet.WiFiPower` for the rfkill block/unblock and
+  # link-down helpers. Never started on host/test (`real_target?` gate).
+  defp wifi_manager_children(target) do
+    if real_target?(target) do
+      [{NauticNet.WiFiManager, compile_default: wifi_enabled?()}]
     else
       []
     end
