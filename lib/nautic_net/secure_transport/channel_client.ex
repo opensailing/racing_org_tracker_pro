@@ -133,6 +133,11 @@ defmodule NauticNet.SecureTransport.ChannelClient do
       # ("set_computed_values") and reports applied_version + active_count back as
       # "computed_values_status". A {module, server} pair (bare module = both).
       compute: normalize_collaborator(Keyword.get(opts, :compute, NauticNet.Compute.Engine)),
+      # The Phase 8 N2K broadcaster: reports whether any computed value is actively
+      # being broadcast on the bus, surfaced as the `broadcasting` field of
+      # "computed_values_status". A {module, server} pair (bare module = both).
+      compute_broadcaster:
+        normalize_collaborator(Keyword.get(opts, :compute_broadcaster, NauticNet.Compute.Broadcaster)),
       firmware_validator: Keyword.get(opts, :firmware_validator, &NauticNet.FirmwareValidator.validate_on_connect/0),
       backoff_opts: Keyword.get(opts, :backoff, Backoff.defaults()),
       attempt: 0,
@@ -453,9 +458,10 @@ defmodule NauticNet.SecureTransport.ChannelClient do
   end
 
   # Build the "computed_values_status" the server allowlists: applied_version +
-  # active_count (number of currently-valid computed values) + reported_at (ISO-8601).
-  # broadcasting/streaming are Phase 8/10 (omitted here). Falls back to a minimal map
-  # if the engine is unavailable, and always stamps reported_at.
+  # active_count (number of currently-valid computed values) + broadcasting (whether
+  # the Phase 8 N2K broadcaster is actively emitting at least one value) + reported_at
+  # (ISO-8601). Streaming stays Phase 10 (omitted). Falls back gracefully if a
+  # collaborator is unavailable, and always stamps reported_at.
   defp computed_values_status(socket) do
     {module, server} = socket.assigns.compute
 
@@ -471,8 +477,20 @@ defmodule NauticNet.SecureTransport.ChannelClient do
     %{
       applied_version: Map.get(base, :applied_version),
       active_count: Map.get(base, :active_count, 0),
+      broadcasting: broadcasting?(socket),
       reported_at: DateTime.utc_now() |> DateTime.to_iso8601()
     }
+  end
+
+  # Whether the Compute.Broadcaster is actively broadcasting at least one computed
+  # value onto the N2K bus. Defaults to false if the broadcaster is unavailable.
+  defp broadcasting?(socket) do
+    {module, server} = socket.assigns.compute_broadcaster
+    module.broadcasting?(server)
+  rescue
+    _ -> false
+  catch
+    :exit, _ -> false
   end
 
   # The version that was just applied: prefer the version from the apply result,

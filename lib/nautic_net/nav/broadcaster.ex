@@ -46,6 +46,11 @@ defmodule NauticNet.Nav.Broadcaster do
     state = %{
       commands: opts[:commands] || Commands,
       transmit: opts[:transmit_fn] || (&default_transmit/3),
+      # The compute engine to feed `bearing_to_mark` into (so the `vmc` library calc can
+      # compute). `{module, server}` or a bare module (used as both). Defaults to the
+      # named Compute.Engine; pass `nil` to disable the push (host tests not exercising
+      # it). See `feed_bearing_to_mark/2`.
+      compute: normalize_compute(Keyword.get(opts, :compute, NauticNet.Compute.Engine)),
       interval: interval,
       route_name: opts[:route_name] || "Course",
       position: nil
@@ -79,8 +84,32 @@ defmodule NauticNet.Nav.Broadcaster do
 
     for {priority, pgn, payload} <- messages, do: safe_transmit(state.transmit, priority, pgn, payload)
 
+    # Feed the bearing-to-active-mark (degrees) into the compute engine so `vmc` can
+    # compute. The same nav geometry that drives the display PGNs sources it: when
+    # there is an active mark + a current position, `bearing_position_to_dest_rad` is
+    # the bearing from the boat to the mark. With no active mark it is simply not
+    # pushed (and vmc stays invalid — correct).
+    feed_bearing_to_mark(state.compute, nav)
+
     {nav, length(messages)}
   end
+
+  defp feed_bearing_to_mark(nil, _nav), do: :ok
+
+  defp feed_bearing_to_mark({module, server}, %{active?: true, bearing_position_to_dest_rad: rad})
+       when is_number(rad) do
+    deg = rad * 180.0 / :math.pi()
+
+    try do
+      module.put_signal(server, "bearing_to_mark", deg, System.monotonic_time(:millisecond))
+    catch
+      :exit, _ -> :ok
+    end
+
+    :ok
+  end
+
+  defp feed_bearing_to_mark(_compute, _nav), do: :ok
 
   defp waypoints(nil), do: []
   defp waypoints(%{race_assignment: nil}), do: []
@@ -113,4 +142,8 @@ defmodule NauticNet.Nav.Broadcaster do
   catch
     :exit, _ -> nil
   end
+
+  defp normalize_compute(nil), do: nil
+  defp normalize_compute({module, server}) when is_atom(module), do: {module, server}
+  defp normalize_compute(module) when is_atom(module), do: {module, module}
 end

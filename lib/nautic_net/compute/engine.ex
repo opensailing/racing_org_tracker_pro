@@ -164,6 +164,27 @@ defmodule NauticNet.Compute.Engine do
   end
 
   @doc """
+  Inject a raw signal value directly into the engine's signal map (catalog units,
+  monotonic ms). This is for signals that are NOT carried on the decoded `:telemetry`
+  stream — notably `bearing_to_mark` (degrees), which `NauticNet.Nav.Broadcaster`
+  derives from the active race assignment + current GPS and pushes here on each tick so
+  the `vmc` library calc can compute. Same staleness rules apply: an injected signal
+  goes stale after `max_age_ms`, so the producer must keep pushing it while it is live.
+
+  Asynchronous (a cast); the value is visible on the next `current_values/1` read.
+  """
+  @spec put_signal(GenServer.server(), String.t(), number(), integer()) :: :ok
+  def put_signal(server \\ __MODULE__, name, value, mono_ms)
+      when is_binary(name) and is_number(value) and is_integer(mono_ms) do
+    case GenServer.whereis(server) do
+      nil -> :ok
+      dest -> send(dest, {:signal_updates, [{name, value}], mono_ms})
+    end
+
+    :ok
+  end
+
+  @doc """
   Status for the channel: `%{applied_version: int | nil, active_count: int}` where
   `active_count` is the number of currently-VALID computed values.
   """

@@ -465,9 +465,21 @@ defmodule NauticNet.SecureTransport.ChannelClientTest do
       def handle_call(:status, _from, state), do: {:reply, state.status, state}
     end
 
+    # A fake Compute.Broadcaster collaborator: broadcasting?/1 returns a fixed bool.
+    defmodule FakeBroadcaster do
+      use Agent
+
+      def start_link(opts), do: Agent.start_link(fn -> Keyword.get(opts, :broadcasting?, false) end)
+      def broadcasting?(agent), do: Agent.get(agent, & &1)
+    end
+
     defp connect_compute_client(ctx, compute_opts) do
       {:ok, holder} = start_supervised({SessionHolder, name: nil})
       {:ok, compute} = start_supervised({FakeCompute, [parent: self()] ++ compute_opts})
+
+      {:ok, broadcaster} =
+        start_supervised({FakeBroadcaster, broadcasting?: Keyword.get(compute_opts, :broadcasting?, false)})
+
       topic = "device:" <> ctx.identity.fingerprint
 
       client =
@@ -479,6 +491,7 @@ defmodule NauticNet.SecureTransport.ChannelClientTest do
            url: "wss://test.local/device_socket/websocket",
            session_holder: holder,
            compute: {FakeCompute, compute},
+           compute_broadcaster: {FakeBroadcaster, broadcaster},
            keystore_opts: [base_path: ctx.base]}
         )
 
@@ -526,6 +539,23 @@ defmodule NauticNet.SecureTransport.ChannelClientTest do
       assert status.applied_version == 3
       assert status.active_count == 2
       assert Map.has_key?(status, :reported_at)
+      # broadcasting reflects the Compute.Broadcaster (default fake: not broadcasting).
+      assert status.broadcasting == false
+    end
+
+    test "computed_values_status reports broadcasting=true when the broadcaster is active", ctx do
+      {client, topic, _compute} =
+        connect_compute_client(ctx,
+          apply_result: {:ok, %{version: 1}},
+          status: %{applied_version: 1, active_count: 1},
+          broadcasting?: true
+        )
+
+      push(client, topic, "set_computed_values", %{"version" => 1, "values" => []})
+
+      assert_receive {:apply_computed_called, _config}
+      assert_push(^topic, "computed_values_status", status)
+      assert status.broadcasting == true
     end
 
     test "set_computed_values apply error → still pushes status (no crash)", ctx do

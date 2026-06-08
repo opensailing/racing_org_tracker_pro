@@ -59,6 +59,7 @@ defmodule NauticNet.Application do
       {NauticNet.Sampling, name: NauticNet.Sampling},
       archive_child(),
       {NauticNet.Nav.Broadcaster, name: NauticNet.Nav.Broadcaster},
+      {NauticNet.Compute.Broadcaster, name: NauticNet.Compute.Broadcaster},
       {NauticNet.Serial, serial_config()},
       # SessionHolder BEFORE the UDP send path + ChannelClient: the UDP path reads
       # the live session from the holder, and the ChannelClient publishes into it.

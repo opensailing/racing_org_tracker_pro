@@ -383,6 +383,29 @@ defmodule NauticNet.Compute.EngineTest do
     end
   end
 
+  # --- bearing_to_mark feeds vmc (Phase 8 wiring of the tracked gap) ---
+
+  describe "vmc via injected bearing_to_mark signal" do
+    test "vmc is invalid without bearing_to_mark, valid once it is supplied", %{dir: dir} do
+      pid = start(dir: dir)
+
+      vmc = library_value("vmc", "VMC", "vmc", ["sog", "cog", "bearing_to_mark"])
+      assert {:ok, _} = Engine.apply_config(pid, payload(0, [vmc]))
+
+      # sog + cog present, but no bearing_to_mark yet -> vmc invalid.
+      emit_velocity_ground(_cog_rad = :math.pi() / 2, _sog = 5.0, 1_000)
+      assert eventually(fn -> match?([%{valid?: false}], Engine.current_values(pid)) end)
+
+      # Inject bearing_to_mark = 60 deg (the value Nav sources from the active mark).
+      Engine.put_signal(pid, "bearing_to_mark", 60.0, 1_000)
+
+      assert eventually(fn -> match?([%{valid?: true}], Engine.current_values(pid)) end)
+      [%{outputs: outs}] = Engine.current_values(pid)
+      # vmc = sog * cos(bearing - cog) = 5 * cos(60 - 90 deg) = 5 * cos(-30) = 4.3301...
+      assert_in_delta outs["vmc"], 5.0 * :math.cos(-30.0 * :math.pi() / 180.0), 1.0e-4
+    end
+  end
+
   # --- status for the channel (applied_version + active_count) ---
 
   describe "status for the channel" do
