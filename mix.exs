@@ -2,12 +2,17 @@ defmodule NauticNet.Device.MixProject do
   use Mix.Project
 
   @app :nautic_net_device
-  @version "0.2.0"
+  @version "0.3.0"
   @all_device_targets [:nautic_net_rpi3]
 
   def project do
     [
       app: @app,
+      # NervesHub product name. Nerves bakes `:name || :app` into the firmware's
+      # `meta-product`, and NervesHub matches uploads against a Product of that exact
+      # name. The OTP app stays `:nautic_net_device`; only the firmware product label
+      # changes. Must match the NervesHub Product name exactly.
+      name: "racing-org",
       version: @version,
       elixir: "~> 1.17",
       archives: [nerves_bootstrap: "~> 1.13"],
