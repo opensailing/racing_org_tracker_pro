@@ -1,5 +1,4 @@
 %{
-  "alarmist": {:hex, :alarmist, "0.4.2", "d7d224e84144ed7ac7c22ed6132802aefeafc30ce62fa792ad2680586a01a33e", [:mix], [{:property_table, "~> 0.3.1", [hex: :property_table, repo: "hexpm", optional: false]}, {:tablet, "~> 0.2.0 or ~> 0.3.0", [hex: :tablet, repo: "hexpm", optional: false]}], "hexpm", "ae47ab7eaab8f2f120e51e7ef17f608871990fc2121a1312bfcdac6873a8a896"},
   "beam_notify": {:hex, :beam_notify, "1.1.1", "da7dd04f16120bcab71f01ff81607ea38ad78af859cd87fad2012eac8feab034", [:make, :mix], [{:elixir_make, "~> 0.6", [hex: :elixir_make, repo: "hexpm", optional: false]}], "hexpm", "5a09fc8449171da423f781de16b95cdec52763e60308345de6f15358c2382a42"},
   "castore": {:hex, :castore, "1.0.19", "6903cabdfd9d1af46454126e7c8385186659dd33ecfb74a885cae52221ad6109", [:mix], [], "hexpm", "3669e6cab13f54c2df26b3e6833745d647f35b6e30d8ddd5975df0d5c842ca98"},
   "cc_precompiler": {:hex, :cc_precompiler, "0.1.11", "8c844d0b9fb98a3edea067f94f616b3f6b29b959b6b3bf25fee94ffe34364768", [:mix], [{:elixir_make, "~> 0.7", [hex: :elixir_make, repo: "hexpm", optional: false]}], "hexpm", "3427232caf0835f94680e5bcf082408a70b48ad68a5f5c0b02a3bea9f3a075b9"},

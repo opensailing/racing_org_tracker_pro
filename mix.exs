@@ -59,14 +59,19 @@ defmodule NauticNet.Device.MixProject do
 
       # NervesHub Device Extensions (negotiated at runtime; also allow them at the
       # product level in NervesHub). Health + Geo ship inside nerves_hub_link and are
-      # always available. LocalShell is only added to the extension set when :expty is
-      # compiled in, and the Health extension uses :alarmist for richer alarm reporting
-      # (it otherwise falls back to the OTP :alarm_handler). Both are optional deps of
-      # nerves_hub_link, so we depend on them explicitly. NOTE: nerves_hub_link decides
-      # LocalShell availability at ITS compile time via Code.ensure_loaded?(ExPTY), so
-      # after adding :expty force a recompile: `mix deps.compile nerves_hub_link --force`.
+      # always available; Health reports alarms via the OTP :alarm_handler. LocalShell
+      # is only added to the extension set when :expty is compiled in, so depend on it
+      # explicitly. NOTE: nerves_hub_link decides LocalShell availability at ITS compile
+      # time via Code.ensure_loaded?(ExPTY), so after adding :expty force a recompile:
+      # `mix deps.compile nerves_hub_link --force`.
+      #
+      # Do NOT add :alarmist here. nerves_hub_link 2.12 compiles its alarm adapter
+      # against whichever handler is present at ITS compile time; if it compiles without
+      # Alarmist it calls `:alarm_handler.get_alarms()`, but Alarmist (when present)
+      # REPLACES the default :alarm_handler at runtime -> that call returns
+      # `{:error, :bad_module}` and NervesHubLink.Socket.init/1 CRASHES, taking the whole
+      # nerves_hub_link app down (device never connects to NervesHub). See alarms.ex:39.
       {:expty, "~> 0.2.1", targets: @all_device_targets},
-      {:alarmist, "~> 0.3", targets: @all_device_targets},
 
       # Slipstream powers the device's outbound, CGNAT-friendly WSS command
       # channel to SailRoute (NauticNet.SecureTransport.ChannelClient). It is
