@@ -140,35 +140,53 @@ config :nerves_ssh, authorized_keys: authorized_keys
 
 # Configure the network using vintage_net
 # See https://github.com/nerves-networking/vintage_net for more information
+# Wi-Fi is configured ONLY when credentials were baked in at build time. On a
+# cellular-only deployment build (no creds), `wlan0` is left UNCONFIGURED so
+# wpa_supplicant never runs and the radio never scans (scanning is the bulk of the
+# Wi-Fi power draw) — and `:wifi_enabled` is set false so `NauticNet.WiFiPower` powers
+# the radio down at boot to save battery. With creds present (bench/dev build), Wi-Fi
+# is a normal client and provides LAN/SSH access; cellular is still used in the field.
+wifi_ssid = System.get_env("VINTAGE_NET_WIFI_SSID")
+wifi_psk = System.get_env("VINTAGE_NET_WIFI_PSK")
+wifi_enabled? = is_binary(wifi_ssid) and wifi_ssid != "" and is_binary(wifi_psk) and wifi_psk != ""
+
+config :nautic_net_device, :wifi_enabled, wifi_enabled?
+
+wlan0_config =
+  if wifi_enabled? do
+    [
+      {"wlan0",
+       %{
+         type: VintageNetWiFi,
+         vintage_net_wifi: %{
+           networks: [%{key_mgmt: :wpa_psk, ssid: wifi_ssid, psk: wifi_psk}]
+         },
+         ipv4: %{method: :dhcp}
+       }}
+    ]
+  else
+    []
+  end
+
 config :vintage_net,
   regulatory_domain: "US",
-  config: [
-    {"usb0", %{type: VintageNetDirect}},
-    {"eth0",
-     %{
-       type: VintageNetEthernet,
-       ipv4: %{method: :dhcp}
-     }},
-    {"wlan0",
-     %{
-       type: VintageNetWiFi,
-       vintage_net_wifi: %{
-         networks: [
-           %{
-             key_mgmt: :wpa_psk,
-             ssid: System.get_env("VINTAGE_NET_WIFI_SSID"),
-             psk: System.get_env("VINTAGE_NET_WIFI_PSK")
-           }
-         ]
-       },
-       ipv4: %{method: :dhcp}
-     }},
-    {"wwan0",
-     %{
-       type: VintageNetQMI,
-       vintage_net_qmi: %{service_providers: [%{apn: "super"}]}
-     }}
-  ]
+  config:
+    [
+      {"usb0", %{type: VintageNetDirect}},
+      {"eth0",
+       %{
+         type: VintageNetEthernet,
+         ipv4: %{method: :dhcp}
+       }}
+    ] ++
+      wlan0_config ++
+      [
+        {"wwan0",
+         %{
+           type: VintageNetQMI,
+           vintage_net_qmi: %{service_providers: [%{apn: "super"}]}
+         }}
+      ]
 
 config :mdns_lite,
   # The `hosts` key specifies what hostnames mdns_lite advertises.  `:hostname`

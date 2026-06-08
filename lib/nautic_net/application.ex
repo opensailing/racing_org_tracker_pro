@@ -64,7 +64,7 @@ defmodule NauticNet.Application do
       {NauticNet.WebClients.UDPClient, udp_config()},
       {NauticNet.DataSetRecorder, chunk_every: @max_unfragmented_udp_payload_size},
       {NauticNet.DataSetUploader, via: :udp}
-    ] ++ secure_transport_children(target)
+    ] ++ wifi_power_children(target) ++ secure_transport_children(target)
   end
 
   # Product: Base station receiver node for nautic_net_tracker_mini
@@ -76,8 +76,22 @@ defmodule NauticNet.Application do
       {NauticNet.DataSetRecorder, chunk_every: @max_unfragmented_udp_payload_size},
       {NauticNet.DataSetUploader, via: :udp},
       NauticNet.BaseStation
-    ] ++ secure_transport_children(target)
+    ] ++ wifi_power_children(target) ++ secure_transport_children(target)
   end
+
+  # Battery: on a real device target built WITHOUT Wi-Fi credentials (`:wifi_enabled`
+  # false — see config/target.exs), power down the Wi-Fi radio at boot so it does not
+  # draw current on a cellular-only deployment. The one-shot, self-terminating
+  # WiFiPower task does it. Never started on host/test or on a Wi-Fi-enabled build.
+  defp wifi_power_children(target) do
+    if real_target?(target) and not wifi_enabled?() do
+      [NauticNet.WiFiPower]
+    else
+      []
+    end
+  end
+
+  defp wifi_enabled?, do: Application.get_env(:nautic_net_device, :wifi_enabled, true) == true
 
   # P9-job-6 secure-transport children, appended after the network/HTTP deps they
   # rely on. The SessionHolder is started inline above (it runs in EVERY environment:
