@@ -63,8 +63,7 @@ defmodule NauticNet.SecureTransport.ChannelClientTest do
       # reschedules each time and never connects/crashes.
       pid =
         start_supervised!(
-          {ChannelClient,
-           name: nil, auto_connect?: false, recheck_ms: 15, keystore_opts: [base_path: base]}
+          {ChannelClient, name: nil, auto_connect?: false, recheck_ms: 15, keystore_opts: [base_path: base]}
         )
 
       Process.sleep(80)
@@ -122,6 +121,173 @@ defmodule NauticNet.SecureTransport.ChannelClientTest do
       {:ok, device_session} = SessionHolder.get_current_session(holder)
       assert device_session.session_id == server_session.session_id
       assert device_session.out_key == server_session.in_key
+    end
+  end
+
+  # --- remote WiFi management (J5): set_wifi / wifi_status over the channel ---
+
+  describe "set_wifi / wifi_status (SocketTest)" do
+    # A fake WiFi collaborator (mirrors the NauticNet.WiFiManager API surface J5
+    # uses) that records apply_config/2 calls to the test process and returns a
+    # canned current_status/1 — so no real WiFiManager / VintageNet is needed.
+    defmodule FakeWiFi do
+      use GenServer
+
+      def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
+
+      @impl true
+      def init(opts) do
+        {:ok,
+         %{
+           parent: Keyword.fetch!(opts, :parent),
+           status: Keyword.get(opts, :status, %{enabled: true, ssid: "boat-net", connection: :internet, signal: -55}),
+           apply_result:
+             Keyword.get(opts, :apply_result, {:ok, %{version: 0, enabled: true, ssid: "boat-net", psk: "secret"}})
+         }}
+      end
+
+      def apply_config(server, config), do: GenServer.call(server, {:apply_config, config})
+      def current_status(server), do: GenServer.call(server, :current_status)
+
+      @impl true
+      def handle_call({:apply_config, config}, _from, state) do
+        send(state.parent, {:apply_config_called, config})
+        {:reply, state.apply_result, state}
+      end
+
+      def handle_call(:current_status, _from, state) do
+        {:reply, state.status, state}
+      end
+    end
+
+    defp connect_client(ctx, wifi_opts) do
+      {:ok, holder} = start_supervised({SessionHolder, name: nil})
+      {:ok, wifi} = start_supervised({FakeWiFi, [parent: self()] ++ wifi_opts})
+      topic = "device:" <> ctx.identity.fingerprint
+
+      client =
+        start_supervised!(
+          {ChannelClient,
+           name: nil,
+           auto_connect?: true,
+           test_mode?: true,
+           url: "wss://test.local/device_socket/websocket",
+           session_holder: holder,
+           wifi: {FakeWiFi, wifi},
+           keystore_opts: [base_path: ctx.base]}
+        )
+
+      connect_and_assert_join(client, ^topic, %{}, :ok)
+      {client, topic, wifi}
+    end
+
+    test "server set_wifi (enable) → apply_config called + wifi_status pushed without psk", ctx do
+      {client, topic, _wifi} =
+        connect_client(ctx,
+          apply_result: {:ok, %{version: 2, enabled: true, ssid: "boat-net", psk: "secret"}},
+          status: %{enabled: true, ssid: "boat-net", connection: :internet, signal: -55}
+        )
+
+      push(client, topic, "set_wifi", %{
+        "ssid" => "boat-net",
+        "psk" => "secret",
+        "enabled" => true,
+        "version" => 2
+      })
+
+      # The injected wifi fake's apply_config was called with the server config.
+      assert_receive {:apply_config_called, config}
+      assert config["ssid"] == "boat-net"
+      assert config["version"] == 2
+      assert config["enabled"] == true
+
+      # The client reports status back to the server, echoing applied_version.
+      assert_push(^topic, "wifi_status", status)
+      assert status.applied_version == 2
+      assert status.enabled == true
+      assert status.ssid == "boat-net"
+      assert Map.has_key?(status, :connection)
+      assert Map.has_key?(status, :signal)
+
+      # The status NEVER leaks the psk.
+      refute Map.has_key?(status, :psk)
+      refute Map.has_key?(status, "psk")
+    end
+
+    test "server set_wifi (disable) → apply_config called + wifi_status pushed", ctx do
+      {client, topic, _wifi} =
+        connect_client(ctx,
+          apply_result: {:ok, %{version: 3, enabled: false, ssid: nil, psk: nil}},
+          status: %{enabled: false, ssid: nil, connection: :disconnected, signal: nil}
+        )
+
+      push(client, topic, "set_wifi", %{"enabled" => false, "version" => 3})
+
+      assert_receive {:apply_config_called, config}
+      assert config["enabled"] == false
+      assert config["version"] == 3
+
+      assert_push(^topic, "wifi_status", status)
+      assert status.enabled == false
+      assert status.applied_version == 3
+      refute Map.has_key?(status, :psk)
+    end
+
+    test "set_wifi apply error → still pushes status (no crash) and never leaks psk", ctx do
+      {client, topic, _wifi} =
+        connect_client(ctx,
+          apply_result: {:error, :ssid_required},
+          status: %{enabled: false, ssid: nil, connection: :disconnected, signal: nil}
+        )
+
+      push(client, topic, "set_wifi", %{"enabled" => true, "psk" => "p", "version" => 4})
+
+      assert_receive {:apply_config_called, _config}
+      assert_push(^topic, "wifi_status", status)
+      assert Map.has_key?(status, :enabled)
+      refute Map.has_key?(status, :psk)
+      assert Process.alive?(client)
+    end
+
+    test "a simulated wlan0 connection-change pushes a fresh wifi_status", ctx do
+      {client, topic, _wifi} =
+        connect_client(ctx, status: %{enabled: true, ssid: "boat-net", connection: :lan, signal: -60})
+
+      # Drive the VintageNet property-change handler directly (the real subscription
+      # is a no-op in test_mode, so we simulate the message it would deliver).
+      send(client, {VintageNet, ["interface", "wlan0", "connection"], :disconnected, :lan, %{}})
+
+      assert_push(^topic, "wifi_status", status)
+      assert status.connection == :lan
+      assert status.enabled == true
+      refute Map.has_key?(status, :psk)
+    end
+
+    test "pushes an initial wifi_status shortly after a successful handshake", ctx do
+      {client, topic, _wifi} =
+        connect_client(ctx, status: %{enabled: true, ssid: "boat-net", connection: :internet, signal: -50})
+
+      # Complete the handshake so the session goes live, which should trigger an
+      # initial status report to the server.
+      {:ok, hello_wire, rstate} =
+        Handshake.responder_hello(
+          server_identity_private: ctx.srv_priv,
+          server_identity_public: ctx.srv_pub,
+          device_identity_public: ctx.identity.public_key,
+          epoch: 0
+        )
+
+      push(client, topic, "handshake_hello", %{"hello" => Base.encode64(hello_wire)})
+      assert_push(^topic, "handshake_init", %{"init" => init_b64})
+      {:ok, init_wire} = Base.decode64(init_b64)
+      {:ok, server_session} = Handshake.responder_finalize(rstate, init_wire)
+
+      push(client, topic, "handshake_ok", %{"session_id" => Base.encode64(server_session.session_id)})
+
+      assert_push(^topic, "wifi_status", status)
+      assert status.enabled == true
+      assert status.ssid == "boat-net"
+      refute Map.has_key?(status, :psk)
     end
   end
 

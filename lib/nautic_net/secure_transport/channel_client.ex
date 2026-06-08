@@ -77,6 +77,9 @@ defmodule NauticNet.SecureTransport.ChannelClient do
     * `:name` — registered name (default `__MODULE__`).
     * `:commands` — the `NauticNet.Commands` server (default `NauticNet.Commands`).
     * `:session_holder` — the `SessionHolder` server (default `SessionHolder`).
+    * `:wifi` — the WiFi collaborator that applies config + reports status. Either a
+      module (used as both module and GenServer name, default `NauticNet.WiFiManager`)
+      or a `{module, server}` tuple so tests can inject a fake module + pid.
     * `:url` — full `wss://host/device_socket` URL override (else derived from
       `SECURE_TRANSPORT_WS_URL`, then the configured `:api_endpoint` host).
     * `:keystore_opts` — opts forwarded to `KeyStore.load/1` (tests use a temp dir).
@@ -119,11 +122,18 @@ defmodule NauticNet.SecureTransport.ChannelClient do
       opts: opts,
       commands: Keyword.get(opts, :commands, NauticNet.Commands),
       session_holder: Keyword.get(opts, :session_holder, SessionHolder),
+      wifi: normalize_wifi(Keyword.get(opts, :wifi, NauticNet.WiFiManager)),
       backoff_opts: Keyword.get(opts, :backoff, Backoff.defaults()),
       attempt: 0,
       session: nil,
       topic: nil
     }
+
+    # Report wlan0 connection changes to the server so the owner's /account page
+    # reflects live status. Real (target) builds subscribe to the VintageNet
+    # property; host/test builds skip it (VintageNet is target-only) and instead
+    # drive `handle_info({VintageNet, ...}, socket)` directly in tests.
+    maybe_subscribe_wlan0(opts)
 
     socket = new_socket() |> assign(state)
 
@@ -194,6 +204,9 @@ defmodule NauticNet.SecureTransport.ChannelClient do
           :ok ->
             :ok = SessionHolder.put(socket.assigns.session_holder, session)
             Logger.info("[ChannelClient] secure session established")
+            # Report current WiFi status once the session is live so the server
+            # reflects the device's actual state on (re)connect.
+            send(self(), :report_wifi_status)
             {:ok, assign(socket, :attempt, 0)}
 
           {:error, reason} ->
@@ -221,6 +234,17 @@ defmodule NauticNet.SecureTransport.ChannelClient do
         Logger.debug("[ChannelClient] command #{inspect(command_id)} not acked: #{inspect(reason)}")
         {:ok, socket}
     end
+  end
+
+  # Server pushes a desired Wi-Fi config -> apply it through the WiFiManager and
+  # report the resulting status back. The status NEVER includes the psk; on an
+  # apply error we still report the (unchanged) current state so the owner's
+  # /account page is not left stale, and we never crash the channel.
+  def handle_message(topic, "set_wifi", payload, socket) do
+    {result, socket} = apply_wifi(payload, socket)
+    status = wifi_status(socket, applied_version(result, payload))
+    push(socket, topic, "wifi_status", status)
+    {:ok, socket}
   end
 
   # Server killed the session (key revoke / device revoke / transfer).
@@ -269,9 +293,107 @@ defmodule NauticNet.SecureTransport.ChannelClient do
     end
   end
 
+  # wlan0's connection changed (VintageNet property notification on target, or a
+  # simulated message in tests) -> push a fresh status so the server/account page
+  # stays live. We don't know the applied version here, so we omit it (the server
+  # allowlist keeps the rest).
+  def handle_info({VintageNet, ["interface", "wlan0", "connection"], _old, _new, _meta}, socket) do
+    {:noreply, push_wifi_status(socket)}
+  end
+
+  # Initial status report after a successful handshake.
+  def handle_info(:report_wifi_status, socket) do
+    {:noreply, push_wifi_status(socket)}
+  end
+
   def handle_info(_msg, socket), do: {:noreply, socket}
 
   # --- internal ---
+
+  # Push the current WiFi status (no applied_version known) to the server. A no-op
+  # when there is no joined topic yet (e.g. a change before the channel is up).
+  defp push_wifi_status(%{assigns: %{topic: nil}} = socket), do: socket
+
+  defp push_wifi_status(socket) do
+    status = wifi_status(socket, nil)
+    push(socket, socket.assigns.topic, "wifi_status", status)
+    socket
+  end
+
+  # --- WiFi collaborator (injectable like :commands) ---
+
+  # Normalize the :wifi opt into a {module, server} pair. A bare module is used as
+  # both the implementation module and the registered GenServer name.
+  defp normalize_wifi({module, server}) when is_atom(module), do: {module, server}
+  defp normalize_wifi(module) when is_atom(module), do: {module, module}
+
+  defp apply_wifi(payload, socket) do
+    {module, server} = socket.assigns.wifi
+    result = module.apply_config(server, payload)
+    {result, socket}
+  rescue
+    error ->
+      Logger.warning("[ChannelClient] WiFi apply_config failed: #{inspect(error)}")
+      {{:error, :apply_failed}, socket}
+  end
+
+  # Build the status map the server's `Devices.record_wifi_status/2` allowlists:
+  # enabled/ssid/connection/signal/applied_version. NEVER includes psk. Falls back
+  # to a minimal disconnected status if current_status/1 is unavailable.
+  defp wifi_status(socket, applied_version) do
+    {module, server} = socket.assigns.wifi
+
+    base =
+      try do
+        module.current_status(server)
+      rescue
+        error ->
+          Logger.warning("[ChannelClient] WiFi current_status failed: #{inspect(error)}")
+          %{enabled: false, ssid: nil, connection: :disconnected, signal: nil}
+      end
+
+    %{
+      enabled: Map.get(base, :enabled),
+      ssid: Map.get(base, :ssid),
+      connection: Map.get(base, :connection),
+      signal: Map.get(base, :signal)
+    }
+    |> maybe_put_applied_version(applied_version)
+  end
+
+  defp maybe_put_applied_version(status, nil), do: status
+  defp maybe_put_applied_version(status, version), do: Map.put(status, :applied_version, version)
+
+  # The version that was just applied: prefer the version from the apply result,
+  # else echo the payload's version. On error/unchanged we still echo the payload
+  # version so the server records which config the device acknowledged.
+  defp applied_version({:ok, %{version: version}}, _payload), do: version
+  defp applied_version(_result, payload), do: payload_version(payload)
+
+  defp payload_version(%{"version" => v}), do: v
+  defp payload_version(%{version: v}), do: v
+  defp payload_version(_), do: nil
+
+  # Subscribe to wlan0 connection changes on a real target (VintageNet is
+  # target-only); skip entirely in test_mode / on host so we never call VintageNet
+  # where it does not exist.
+  defp maybe_subscribe_wlan0(opts) do
+    if subscribe_wlan0?(opts) do
+      vintage_net = Module.concat(["VintageNet"])
+
+      if Code.ensure_loaded?(vintage_net) and function_exported?(vintage_net, :subscribe, 1) do
+        vintage_net.subscribe(["interface", "wlan0", "connection"])
+      end
+    end
+
+    :ok
+  end
+
+  # Default to the target gate; tests pass test_mode?: true and host has no
+  # VintageNet, so subscription is skipped there regardless.
+  defp subscribe_wlan0?(opts) do
+    not Keyword.get(opts, :test_mode?, false) and device_target?()
+  end
 
   # A handshake failure (bad signature, mismatch, server error) is NOT a clean
   # session: clear the holder and reconnect on backoff (which re-runs the
