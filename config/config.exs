@@ -19,16 +19,6 @@ config :nautic_net_device,
   replay_log: System.get_env("REPLAY_LOG"),
   git_commit: git_commit
 
-# P9-job-4 AEAD UDP telemetry gate. When a live SecureTransport session exists,
-# telemetry DataSets are sealed into AEAD frames; otherwise this flag decides the
-# no-session fallback:
-#   false (default, coexistence rollout) - send the legacy plaintext DataSet.
-#   true  (post per-device enforcement)  - drop the datagram (never send plaintext).
-# Mirrors the server's per-device `requires_secure_transport`.
-config :nautic_net_device,
-       :require_secure_transport,
-       System.get_env("REQUIRE_SECURE_TRANSPORT") == "true"
-
 # Secure-transport wiring. The SessionHolder is cheap and starts in EVERY
 # environment (the UDP send path + tests read it). The WSS ChannelClient, the
 # boot-time self-registration provisioner, and the post-race BulkUploader are gated
@@ -39,9 +29,12 @@ config :nautic_net_device,
 #
 # There is NO separate build-time enable flag: the single "secure transport is
 # configured" signal IS the pinned server public key below. Setting
-# SECURE_TRANSPORT_SERVER_PUBLIC_KEY enables secure transport; unset = legacy/plaintext.
-# `require_secure_transport` above is the SEPARATE, later cutover that stops emitting
-# plaintext — it is unrelated to whether the secure-transport children start.
+# SECURE_TRANSPORT_SERVER_PUBLIC_KEY enables secure transport; unset leaves the
+# secure-transport children dormant.
+#
+# UDP telemetry is AEAD-only: when a live session exists each DataSet is sealed and
+# sent, and with no live session the datagram is dropped (never plaintext). There is
+# no device-side plaintext kill switch / fallback flag.
 #
 # Provisioning value read from the BUILD-HOST environment at firmware-compile time
 # (same mechanism as API_ENDPOINT above) and baked into the image. Unset (host/test

@@ -121,45 +121,28 @@ defmodule NauticNet.WebClients.UDPClientTest do
   end
 
   describe "with no live session" do
-    test "require_secure_transport=false -> sends the legacy plaintext DataSet" do
+    test "drops the datagram (sends nothing) -- never plaintext" do
       holder = start_holder()
 
       :ok =
         UDPClient.send_data_set(@dataset_plaintext,
           session_holder: holder,
-          send_fun: capture_fun(self()),
-          require_secure_transport: false
-        )
-
-      assert_receive {:sent, bytes}
-      assert bytes == @dataset_plaintext
-    end
-
-    test "require_secure_transport=true -> nothing is sent (dropped), no crash" do
-      holder = start_holder()
-
-      :ok =
-        UDPClient.send_data_set(@dataset_plaintext,
-          session_holder: holder,
-          send_fun: capture_fun(self()),
-          require_secure_transport: true
+          send_fun: capture_fun(self())
         )
 
       refute_receive {:sent, _bytes}
     end
 
-    test "a not-running holder is treated as no-session (no crash)" do
+    test "a not-running holder is treated as no-session and dropped (no crash)" do
       # No process registered under this name: take_send_counter exits; the send path
-      # must catch it and fall back per policy.
+      # must catch it and drop (never leak plaintext).
       :ok =
         UDPClient.send_data_set(@dataset_plaintext,
           session_holder: :no_such_holder_process,
-          send_fun: capture_fun(self()),
-          require_secure_transport: false
+          send_fun: capture_fun(self())
         )
 
-      assert_receive {:sent, bytes}
-      assert bytes == @dataset_plaintext
+      refute_receive {:sent, _bytes}
     end
   end
 

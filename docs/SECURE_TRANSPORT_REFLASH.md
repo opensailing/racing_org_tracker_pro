@@ -1,8 +1,16 @@
 # Secure-Transport Reflash + Enforcement Runbook (one device, end to end)
 
-Operator runbook for the coordinated secure-transport rollout of a SINGLE Nautic Net
-device against the SailRoute server, covering: server prep, device provisioning +
-reflash, verification, and the coordinated enforcement cutover (with rollback).
+Operator runbook for the secure-transport rollout of a SINGLE Nautic Net device
+against the SailRoute server, covering: server prep, device provisioning + reflash,
+and verification.
+
+> The device firmware is now ALWAYS secure-only for UDP telemetry: each DataSet is
+> sealed into an AEAD frame when a live session exists, and DROPPED (never sent in
+> the clear) when there is no live session. There is no plaintext fallback and no
+> device-side flag to flip — provisioning + verifying secure transport is the whole
+> device-side job. The only remaining coordinated cutover is on the SERVER (§4):
+> flipping the per-device column so the server REJECTS any plaintext attributed to
+> the device.
 
 This is the operational counterpart to the device wiring landed in P9-job-6
 (`NauticNet.SecureTransport.SessionHolder` / `ChannelClient` / `BootProvisioner` in
@@ -27,13 +35,15 @@ the supervision tree, and the post-race `BulkUploader` trigger from
   IPv4 socket on the fly-global-services address and command replies egress from
   that same socket. Telemetry ingest, the per-device enforcement gate, and replies
   are all on that single machine. Do not assume multi-machine UDP fan-out.
-- **Cutover order (never brick the device).** Always: (1) confirm AEAD telemetry is
-  arriving AND the channel session is healthy, (2) turn OFF device plaintext
-  (`require_secure_transport=true` on the DEVICE) FIRST, (3) THEN turn ON server
-  rejection of plaintext for that device (`requires_secure_transport=true` on the
-  SERVER). Reverse order on rollback.
-- **Coexistence default.** Every flag defaults OFF. Until you flip them, the device
-  sends plaintext and the server accepts it — byte-for-byte unchanged.
+- **Device is secure-only.** The firmware NEVER emits plaintext telemetry: with a
+  live session it sends AEAD; with no live session it drops the datagram. There is
+  no device-side flag and nothing to flip on the device — so the only coordinated
+  cutover left is on the SERVER (turning ON `requires_secure_transport=true` for the
+  device so the server rejects any plaintext attributed to it).
+- **Server-side coexistence default.** The server's per-device
+  `requires_secure_transport` defaults OFF (it still accepts plaintext from other
+  devices). Confirm AEAD telemetry is arriving and the channel session is healthy
+  before flipping it ON for this device (§4).
 
 ---
 
@@ -111,14 +121,10 @@ Provisioning values:
 > public key, and the same image is safe to flash onto any number of devices (each
 > generates its own identity and registers independently; the server is idempotent).
 
-The device-side plaintext kill switch (also build-host env, read by config.exs; unset
-= the safe default). It is SEPARATE from enabling secure transport (above) and only
-governs whether the device may still fall back to plaintext when no live session
-exists:
-
-| Env var | Set to (initial) | Effect |
-|---|---|---|
-| `REQUIRE_SECURE_TRANSPORT` | unset / `false` **(initially)** | Device-side plaintext kill switch (`:require_secure_transport`). Leave OFF until the enforcement flip (§4). |
+> There is NO device-side plaintext kill switch / fallback flag. UDP telemetry is
+> AEAD-only unconditionally: with a live session the device seals + sends each
+> DataSet; with no live session it DROPS the datagram (never plaintext). Nothing to
+> set or flip on the device for transport security.
 
 > There is NO separate build-time enable flag. The `BootProvisioner` / `ChannelClient`
 > / `BulkUploader` start only on a real device target (`MIX_TARGET` != `host`) AND when
@@ -137,7 +143,6 @@ export API_ENDPOINT="https://sailroute-backend.fly.dev"      # your server base
 export UDP_ENDPOINT="sailroute-backend.fly.dev:4001"
 export PRODUCT="logger"
 export SECURE_TRANSPORT_SERVER_PUBLIC_KEY="<64-char hex from §1.2>"  # the SINGLE enable: setting it turns on register + channel + bulk
-# REQUIRE_SECURE_TRANSPORT stays unset until the §4 cutover
 
 MIX_TARGET=<target> mix firmware
 MIX_TARGET=<target> mix burn                # or: fwup / NervesHub OTA push
@@ -162,9 +167,9 @@ MIX_TARGET=<target> mix burn                # or: fwup / NervesHub OTA push
 3. `ChannelClient` connects the WSS channel (`/device_socket`), joins `device:<fp>`,
    runs the initiator handshake, and on `handshake_ok` publishes the live `Session`
    into `SessionHolder`.
-4. UDP telemetry is now AEAD-sealed (the `UDPClient` reserves a counter from
-   `SessionHolder` and seals each DataSet). With `require_secure_transport=false`,
-   any moment without a live session still falls back to plaintext (coexistence).
+4. UDP telemetry is AEAD-only (the `UDPClient` reserves a counter from
+   `SessionHolder` and seals each DataSet). Any moment without a live session DROPS
+   the datagram — the device never falls back to plaintext.
 5. Post-race, `Race.Archive` finalizes the recording and triggers
    `BulkUploader.upload_async` (signed HTTPS bulk plane). Local recordings are kept
    until the server confirms completeness via `manifest_verification_result`.
@@ -208,9 +213,9 @@ value to use in §3.1 and §4.
 
 On the server, `SecureUDPIngest` routes AEAD frames through the secure path. Watch the
 UDP audit / ingest: AEAD datagrams ingest normally and do NOT show
-`:plaintext_rejected`. While `require_secure_transport=false` on both sides you may
-still see occasional plaintext (e.g. a brief no-session window) — that is expected
-coexistence, not a failure.
+`:plaintext_rejected`. The device is secure-only, so you should see NO plaintext
+telemetry from it at all — a no-session window shows up as a gap (dropped datagrams),
+never as plaintext.
 
 ### 3.5 Confirm a bulk upload completed
 
@@ -232,12 +237,22 @@ telemetry and channel session are attributed to that account.
 
 ---
 
-## 4. THE ENFORCEMENT FLIP (coordinated cutover for this device)
+## 4. SERVER ENFORCEMENT (the only coordinated cutover)
 
-Goal: require secure transport for THIS device without bricking it. Do NOT proceed
-until §3.3 + §3.4 are green for this device.
+The device is ALREADY secure-only: the firmware never emits plaintext telemetry (with
+a live session it sends AEAD; with no live session it drops the datagram). There is no
+plaintext-fallback stage and NO device flag to flip — provisioning + verifying secure
+transport (§2–§3) is the entire device-side job.
 
-> **STEP 4 SERVER-ENFORCEMENT FINDING (verified read-only for this runbook):**
+The only remaining cutover is on the SERVER: flip the per-device
+`requires_secure_transport` column so the server REJECTS any plaintext that is
+attributed to this device. Because the device never sends plaintext, this is a safe,
+no-window change — there is no "turn off device plaintext first" step and no rollback
+ordering hazard.
+
+Do NOT proceed until §3.3 + §3.4 are green for this device.
+
+> **SERVER-ENFORCEMENT FINDING (verified read-only for this runbook):**
 > The server's per-device `requires_secure_transport` column IS actually ENFORCED.
 > The live UDP listener (`SailRoute.NauticNet.UDPServer.process_datagram/5`) calls
 > `SecureUDPIngest.handle_datagram/3` for EVERY datagram; on the legacy plaintext
@@ -246,31 +261,14 @@ until §3.3 + §3.4 are green for this device.
 > not ingested) when `match?(%Device{requires_secure_transport: true}, device)` — i.e.
 > the per-device DB column is read and acted on. Covered by
 > `backend/test/sail_route/nautic_net/secure_udp_coexistence_test.exs`
-> ("plaintext from a secure-capable device is REJECTED"). So the flip below is REAL,
-> not a no-op.
+> ("plaintext from a secure-capable device is REJECTED").
 
 ### Step A — Pre-checks
 Confirm: device sending AEAD (§3.4), channel session healthy (§3.3), device-key row
-present (§3.1) and associated (§3.6). Keep both `require_secure_transport` flags OFF at
-this point.
+present (§3.1) and associated (§3.6). The device emits no plaintext, so there is
+nothing to change on the device.
 
-### Step B — Turn OFF device plaintext (DEVICE first)
-Rebuild + reflash the device firmware with the kill switch on. It is compile-time
-baked (like the rest of §2), so this is a firmware rebuild — not a live toggle:
-
-```sh
-export REQUIRE_SECURE_TRANSPORT=true        # plus the same §2.1 env
-MIX_TARGET=<target> mix firmware
-MIX_TARGET=<target> mix burn                # or NervesHub OTA push
-```
-
-(Equivalently, hardcode `config :nautic_net_device, :require_secure_transport, true`.)
-Now the device NEVER emits plaintext: with a live session it sends AEAD; with no live
-session it DROPS the datagram (it does not leak plaintext). Re-confirm §3.4 — telemetry
-keeps flowing (as AEAD). The server still ACCEPTS plaintext at this point, so there is
-no rejection risk during the window.
-
-### Step C — Turn ON server rejection for this device (SERVER second)
+### Step B — Turn ON server rejection for this device
 Flip the per-device column so the server rejects any (now-impossible) plaintext from it:
 
 ```sh
@@ -284,19 +282,14 @@ fly ssh console -a <your-app> -C \
 ```
 
 From now on, a plaintext datagram attributable to this device is rejected
-(`:plaintext_rejected`) and only its AEAD frames are accepted.
+(`:plaintext_rejected`) and only its AEAD frames are accepted. The device only ever
+sends AEAD, so telemetry keeps flowing unaffected.
 
-### Rollback (reverse order)
-1. **Server first**: set the device's `requires_secure_transport` back to `false`
-   (`SailRoute.Devices.update_device(dev, %{requires_secure_transport: false})`). The
-   server again accepts plaintext from it.
-2. **Device second**: rebuild + reflash with `REQUIRE_SECURE_TRANSPORT` unset (or
-   `config :nautic_net_device, :require_secure_transport, false`). The device resumes
-   plaintext fallback when no session is live.
-
-Reversing the order (device-first on rollback) would, for the window in between, leave
-a device emitting plaintext while the server still rejects it — telemetry loss. Always
-re-open the server before re-opening the device.
+### Rollback
+Set the device's `requires_secure_transport` back to `false`
+(`SailRoute.Devices.update_device(dev, %{requires_secure_transport: false})`). The
+server again accepts plaintext from it — though this device never sends any. There is
+no device-side rollback step.
 
 ---
 
@@ -308,8 +301,8 @@ re-open the server before re-opening the device.
 > in with an account; device telemetry ingest is device-authenticated and unaffected.
 > So the only remaining global cutover is the UDP plaintext kill switch below.
 
-The per-device flip above is one device. One global flag remains; do it ONLY after the
-WHOLE fleet is reflashed + verified:
+The per-device server flip above (§4) is one device. One global SERVER flag remains;
+do it ONLY after the WHOLE fleet is reflashed + verified:
 
 - **`require_authenticated_device` (UDP telemetry kill switch).**
   `config :sail_route, :device_auth, require_authenticated_device: true`. When ON, the
@@ -318,6 +311,6 @@ WHOLE fleet is reflashed + verified:
   (`SecureUDPIngest.plaintext_rejected?/1`). This bricks any not-yet-reflashed device,
   so it is the LAST step after the entire fleet is on AEAD.
 
-These two (`require_secure_transport` per device, `require_authenticated_device` global
-UDP) are independent device-transport switches — flip each in its own coordinated
-window.
+Both `requires_secure_transport` (per-device DB column) and
+`require_authenticated_device` (global config) are SERVER-side switches; the device
+itself carries no transport flag (it is unconditionally secure-only).

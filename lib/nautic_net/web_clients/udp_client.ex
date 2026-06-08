@@ -1,10 +1,9 @@
 defmodule NauticNet.WebClients.UDPClient do
   @moduledoc """
-  Sends DataSet telemetry over UDP, with P9-job-4 AEAD framing + legacy-plaintext
-  coexistence.
+  Sends DataSet telemetry over UDP as AEAD-only — there is NO plaintext fallback.
 
-  A DataSet is an encoded protobuf binary (`NauticNet.Protobuf.DataSet`). Today the
-  device sends it as PLAINTEXT over UDP. This module gates that send:
+  A DataSet is an encoded protobuf binary (`NauticNet.Protobuf.DataSet`). The device
+  ONLY ever puts a sealed AEAD frame on the wire:
 
     * If a **live** SecureTransport session exists
       (`NauticNet.SecureTransport.SessionHolder.live?/1`), the DataSet binary is
@@ -12,19 +11,14 @@ defmodule NauticNet.WebClients.UDPClient do
       (device->server key `k_d2s`, header AAD, nonce `epoch||counter`,
       ChaCha20-Poly1305) and THAT frame is what goes on the wire. The frame
       plaintext is EXACTLY the encoded DataSet — i.e. the same bytes the device
-      would have sent in the clear — which is precisely what the server's
+      would otherwise carry — which is precisely what the server's
       `SailRoute.NauticNet.SecureUDPIngest` recovers and feeds to `DataSetIngest`.
       This is SEND-ONLY: the server does not reply with an AEAD frame on UDP
       (secure command delivery is over the P4 channel).
 
-    * If there is **no** live session, behavior is policy-driven by the
-      `:require_secure_transport` config (see below):
-        - `false` (default, coexistence rollout): send the LEGACY plaintext DataSet
-          exactly as before, so an un-handshaken / pre-enforcement device keeps
-          working.
-        - `true` (post per-device enforcement flip): do NOT send plaintext; drop the
-          datagram and log at a low level. Mirrors the server's per-device
-          `requires_secure_transport`.
+    * If there is **no** live session, the datagram is DROPPED (logged/audited at a
+      low level). Telemetry is never sent in the clear; the device re-sends on the
+      next sample once a session is live.
 
   Counter monotonicity is owned by `SessionHolder` (its `take_send_counter/1`
   reserves a unique `(epoch, counter)` + the out key); the actual sealing is the
@@ -36,13 +30,6 @@ defmodule NauticNet.WebClients.UDPClient do
   The existing UDP RECEIVE handling on the device-initiated socket
   (`NauticNet.WebClients.UDPClient.Server`) is unchanged for legacy command
   coexistence; secure command delivery is the P4 channel.
-
-  ## Config
-
-      config :nautic_net_device, :require_secure_transport, false
-
-  Default `false`. When `true`, plaintext is never sent and a datagram with no live
-  session is dropped.
   """
 
   require Logger
@@ -51,36 +38,29 @@ defmodule NauticNet.WebClients.UDPClient do
   alias NauticNet.SecureTransport.SessionHolder
   alias NauticNet.WebClients.UDPClient.Server
 
-  @config_app :nautic_net_device
-  @config_key :require_secure_transport
-
   def child_spec(arg), do: Server.child_spec(arg)
 
   @doc """
-  Gate + send one encoded DataSet (`proto_binary`) over UDP.
+  Seal + send one encoded DataSet (`proto_binary`) over UDP as an AEAD frame, or
+  DROP it when no live session exists. Plaintext is never sent.
 
   Returns `:ok` (the send is fire-and-forget; UDP is lossy). Options (mainly for
   tests):
 
     * `:session_holder` — the `SessionHolder` server to consult
       (default `SessionHolder`).
-    * `:send_fun` — 1-arity fun invoked with the FINAL bytes to put on the wire
-      (default `&Server.send/1`), so tests can capture the bytes without a socket.
-    * `:require_secure_transport` — override the config (default reads the app env).
+    * `:send_fun` — 1-arity fun invoked with the FINAL (sealed) bytes to put on the
+      wire (default `&Server.send/1`), so tests can capture the bytes without a
+      socket.
   """
   @spec send_data_set(binary(), keyword()) :: :ok
   def send_data_set(proto_binary, opts \\ []) when is_binary(proto_binary) do
     holder = Keyword.get(opts, :session_holder, SessionHolder)
     send_fun = Keyword.get(opts, :send_fun, &Server.send/1)
 
-    require_secure? =
-      Keyword.get_lazy(opts, @config_key, fn ->
-        Application.get_env(@config_app, @config_key, false)
-      end)
-
     case secure_grant(holder) do
       {:ok, grant} -> send_secure(proto_binary, grant, send_fun)
-      :no_session -> send_without_session(proto_binary, send_fun, require_secure?)
+      :no_session -> drop_without_session()
     end
   end
 
@@ -111,15 +91,9 @@ defmodule NauticNet.WebClients.UDPClient do
     end
   end
 
-  defp send_without_session(_proto_binary, _send_fun, true) do
-    # Enforcement is on for this device but no session is live: do not leak plaintext.
-    Logger.debug("Dropping telemetry datagram; secure transport required but no live session")
-    :ok
-  end
-
-  defp send_without_session(proto_binary, send_fun, false) do
-    # Coexistence: legacy plaintext send, exactly as before.
-    send_fun.(proto_binary)
+  defp drop_without_session do
+    # No live session: drop the datagram. Telemetry is AEAD-only — never leak plaintext.
+    Logger.debug("Dropping telemetry datagram; no live secure transport session")
     :ok
   end
 end
