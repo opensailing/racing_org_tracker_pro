@@ -53,11 +53,17 @@ defmodule NauticNet.Compute.Broadcaster do
 
   alias NauticNet.Compute.Engine
   alias NauticNet.Compute.PgnEncode
+  alias NauticNet.SecureTransport.ChannelClient
   alias NauticNet.Telemetry.Ewma
 
   # 10 Hz tick: faster than any value's broadcast_rate_hz so per-def rate-limiting,
   # not the tick, sets each value's actual cadence.
   @default_tick_ms 100
+
+  # ~2 Hz backend stream cadence (per value). The streamback is for live DISPLAY, so
+  # it is capped LOW and independent of the (up to 50 Hz) bus broadcast rate, and all
+  # due values are batched into ONE message per flush to keep channel traffic minimal.
+  @default_stream_interval_ms 500
 
   # Outputs whose values are compass/relative bearings and must be damped circularly.
   @circular_outputs MapSet.new([
@@ -101,10 +107,22 @@ defmodule NauticNet.Compute.Broadcaster do
     state = %{
       engine: normalize_engine(opts[:engine]),
       transmit: opts[:transmit_fn] || (&default_transmit/3),
+      # The backend streamback collaborator: a 1-arity fn taking the batch of
+      # `%{id, value}` maps. Defaults to the channel client (best-effort, no-op when no
+      # session); injectable so host tests capture the streamed payload without a socket.
+      stream: opts[:stream_fn] || (&ChannelClient.send_computed_values_data/1),
       now_fn: opts[:now_fn] || fn -> System.monotonic_time(:millisecond) end,
       tick_ms: tick_ms,
-      # def_id => last-sent monotonic ms
+      # The backend stream is for live DISPLAY only, so it is rate-limited LOW and
+      # independent of broadcast_rate_hz (which can be up to 50 Hz for the bus).
+      stream_interval_ms: opts[:stream_interval_ms] || @default_stream_interval_ms,
+      # def_id => last-sent monotonic ms (bus broadcast rate-limit)
       last_sent: %{},
+      # def_id => last-streamed monotonic ms (backend stream rate-limit)
+      last_streamed: %{},
+      # def_id => the damped outputs map from the most recent BUS emission, so the
+      # stream sends the SAME smoothed value the bus got (no second EWMA).
+      last_damped: %{},
       # {def_id, output_name} => Ewma.state
       damp: %{},
       broadcasting?: false
@@ -136,10 +154,16 @@ defmodule NauticNet.Compute.Broadcaster do
     now = state.now_fn.()
     values = current_values(state.engine)
 
+    # 1) Bus broadcast pass (Phase 8 — unchanged): damp + encode + transmit each
+    #    eligible+due value, caching the damped outputs so the stream can reuse them.
     {count, state} =
       Enum.reduce(values, {0, state}, fn result, {sent, st} ->
         maybe_broadcast(result, now, sent, st)
       end)
+
+    # 2) Backend stream pass (Phase 10): batch every valid + stream_to_backend value
+    #    that is due (~2 Hz) into ONE flush, sending the SAME damped value the bus got.
+    state = stream_due_values(values, now, state)
 
     {count, %{state | broadcasting?: count > 0}}
   end
@@ -154,7 +178,8 @@ defmodule NauticNet.Compute.Broadcaster do
         {:ok, payload} ->
           safe_transmit(state.transmit, priority_for(def.output_pgn), def.output_pgn, payload)
           last_sent = Map.put(state.last_sent, def.id, now)
-          {sent + 1, %{state | last_sent: last_sent, damp: damp}}
+          last_damped = Map.put(state.last_damped, def.id, damped_outputs)
+          {sent + 1, %{state | last_sent: last_sent, damp: damp, last_damped: last_damped}}
 
         :error ->
           # Encoder couldn't build a frame (unsupported PGN / missing field). Keep the
@@ -164,6 +189,94 @@ defmodule NauticNet.Compute.Broadcaster do
     else
       {sent, state}
     end
+  end
+
+  # --- backend stream (Phase 10) ---
+
+  # For every VALID + stream_to_backend def that is due per the stream interval, collect
+  # `%{id, value}` (the DAMPED primary-output value) and flush them as ONE batch via the
+  # injected stream fn. Streaming is gated only on validity + stream_to_backend — NOT on
+  # broadcast_enabled — so a stream-only value is still sent.
+  defp stream_due_values(values, now, state) do
+    {batch, state} =
+      Enum.reduce(values, {[], state}, fn result, {acc, st} ->
+        def = result.def
+
+        if stream_eligible?(result) and stream_due?(def, now, st.last_streamed, st.stream_interval_ms) do
+          {damped_outputs, st} = stream_damped_outputs(def, result.outputs, now, st)
+
+          case primary_value(def, damped_outputs) do
+            {:ok, value} ->
+              last_streamed = Map.put(st.last_streamed, def.id, now)
+              {[%{id: def.id, value: value} | acc], %{st | last_streamed: last_streamed}}
+
+            :error ->
+              {acc, st}
+          end
+        else
+          {acc, st}
+        end
+      end)
+
+    # One message per flush (never one per value); skip the call entirely when empty.
+    case batch do
+      [] -> state
+      list -> flush_stream(state, Enum.reverse(list))
+    end
+  end
+
+  # A value is streamed to the backend only when VALID and stream_to_backend is on.
+  defp stream_eligible?(%{valid?: true, def: %{stream_to_backend: true}}), do: true
+  defp stream_eligible?(_), do: false
+
+  # Low-cadence rate-limit: due if never streamed, or stream_interval_ms has elapsed.
+  # Subtract a tiny epsilon so a value scheduled exactly on a tick boundary (interval an
+  # exact multiple of the tick) isn't perpetually one tick late.
+  defp stream_due?(def, now, last_streamed, interval_ms) do
+    case Map.get(last_streamed, def.id) do
+      nil -> true
+      last_ms -> now - last_ms >= interval_ms - 1
+    end
+  end
+
+  # The damped outputs to stream. Prefer the value the BUS just emitted this tick (so
+  # the stream is byte-identical to the bus); else, for a value not put on the bus
+  # (broadcast disabled, or not yet broadcast at its slower rate), damp it here. The
+  # shared `damp` map keys each output, so a broadcast-disabled value is smoothed by a
+  # SINGLE EWMA chain (driven only by the stream) — never double-smoothed.
+  defp stream_damped_outputs(def, outputs, now, state) do
+    case Map.fetch(state.last_damped, def.id) do
+      {:ok, damped} ->
+        {damped, state}
+
+      :error ->
+        {damped, damp} = damp_outputs(def, outputs, now, state.damp)
+        {damped, %{state | damp: damp}}
+    end
+  end
+
+  # The def's PRIMARY output value: output_field, falling back to the calc's main
+  # output / "value" (mirrors the encoder's first_value). Must be numeric.
+  defp primary_value(def, outputs) do
+    candidates = Enum.uniq([def.output_field, "value"])
+
+    Enum.find_value(candidates, :error, fn key ->
+      case Map.get(outputs, key) do
+        v when is_number(v) -> {:ok, v / 1}
+        _ -> nil
+      end
+    end)
+  end
+
+  defp flush_stream(state, batch) do
+    state.stream.(batch)
+    state
+  rescue
+    error ->
+      Logger.warning("Compute backend stream failed: #{inspect(error)}")
+      state
+  catch
+    :exit, _ -> state
   end
 
   # A value is eligible to go on the bus only when VALID and broadcast-enabled.

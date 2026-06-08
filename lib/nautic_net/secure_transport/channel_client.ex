@@ -114,6 +114,27 @@ defmodule NauticNet.SecureTransport.ChannelClient do
     device_target?() and registered?(opts) and has_identity?(opts) and ServerIdentity.configured?()
   end
 
+  @doc """
+  Stream a batch of live computed values back to the backend over the channel
+  (Phase 10), as the `"computed_values_data"` event with payload `%{values: values}`,
+  where each value is `%{id: <computed_value_uuid>, value: <number>}`.
+
+  Best-effort: it casts the batch to the running client, which pushes ONLY when a
+  secure session is live (a joined topic + derived session). With no live session —
+  or no running client — it is a no-op (exactly like telemetry is dropped when no
+  session). Always returns `:ok` and never raises (the Phase 8 broadcaster calls this
+  on every flush and must never be coupled to channel state).
+  """
+  @spec send_computed_values_data(GenServer.server(), [map()]) :: :ok
+  def send_computed_values_data(server \\ __MODULE__, values) when is_list(values) do
+    case GenServer.whereis(server) do
+      pid when is_pid(pid) -> send(pid, {:send_computed_values_data, values})
+      _ -> :ok
+    end
+
+    :ok
+  end
+
   # --- Slipstream callbacks ---
 
   @impl Slipstream
@@ -346,6 +367,13 @@ defmodule NauticNet.SecureTransport.ChannelClient do
     {:noreply, push_wifi_status(socket)}
   end
 
+  # The Phase 8 broadcaster streams live (damped) computed values back for display.
+  # Push them as "computed_values_data" ONLY when a secure session is live (joined
+  # topic + derived session); otherwise drop the batch (best-effort, like telemetry).
+  def handle_info({:send_computed_values_data, values}, socket) do
+    {:noreply, push_computed_values_data(socket, values)}
+  end
+
   def handle_info(_msg, socket), do: {:noreply, socket}
 
   # --- internal ---
@@ -358,6 +386,35 @@ defmodule NauticNet.SecureTransport.ChannelClient do
     status = wifi_status(socket, nil)
     push(socket, socket.assigns.topic, "wifi_status", status)
     socket
+  end
+
+  # Push a batch of streamed computed values as "computed_values_data". Gated on a
+  # LIVE secure session: a joined topic AND a derived session that the SessionHolder
+  # confirms is live (i.e. the handshake completed). No `at` field — the server stamps
+  # receipt time. With no live session / empty batch this is a no-op (the value is
+  # simply dropped, like telemetry with no session).
+  defp push_computed_values_data(%{assigns: %{topic: nil}} = socket, _values), do: socket
+  defp push_computed_values_data(socket, []), do: socket
+
+  defp push_computed_values_data(socket, values) do
+    if session_live?(socket) do
+      push(socket, socket.assigns.topic, "computed_values_data", %{values: values})
+    end
+
+    socket
+  end
+
+  # The session is live once the handshake has completed and published it to the
+  # holder (and not since been evicted/disconnected). Defaults to false if the holder
+  # is unavailable, so streamback is never sent over a half-open channel.
+  defp session_live?(%{assigns: %{session: nil}}), do: false
+
+  defp session_live?(socket) do
+    SessionHolder.live?(socket.assigns.session_holder)
+  rescue
+    _ -> false
+  catch
+    :exit, _ -> false
   end
 
   # --- WiFi collaborator (injectable like :commands) ---
@@ -460,8 +517,9 @@ defmodule NauticNet.SecureTransport.ChannelClient do
   # Build the "computed_values_status" the server allowlists: applied_version +
   # active_count (number of currently-valid computed values) + broadcasting (whether
   # the Phase 8 N2K broadcaster is actively emitting at least one value) + reported_at
-  # (ISO-8601). Streaming stays Phase 10 (omitted). Falls back gracefully if a
-  # collaborator is unavailable, and always stamps reported_at.
+  # (ISO-8601). The live streamback of values themselves is a separate event
+  # ("computed_values_data", see send_computed_values_data/2). Falls back gracefully if
+  # a collaborator is unavailable, and always stamps reported_at.
   defp computed_values_status(socket) do
     {module, server} = socket.assigns.compute
 

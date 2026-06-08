@@ -35,7 +35,8 @@ defmodule NauticNet.Compute.BroadcasterTest do
 
   # Start a Broadcaster whose engine is the stub, with an injected clock + a sender
   # that forwards encoded frames to the test process. `:tick_ms` large so only manual
-  # `tick_now/1` fires (deterministic).
+  # `tick_now/1` fires (deterministic). The backend stream sender is also injected and
+  # forwards each flushed batch to the test process as `{:stream, values}`.
   defp start_bcast(values, opts \\ []) do
     test_pid = self()
     {:ok, engine} = StubEngine.start(values)
@@ -44,11 +45,14 @@ defmodule NauticNet.Compute.BroadcasterTest do
     bcast =
       start_supervised!(
         {Broadcaster,
-         engine: {StubEngine, engine},
-         tick_ms: opts[:tick_ms] || 3_600_000,
-         now_fn: clock,
-         transmit_fn: fn priority, pgn, payload -> send(test_pid, {:tx, priority, pgn, payload}) end,
-         name: nil},
+         [
+           engine: {StubEngine, engine},
+           tick_ms: opts[:tick_ms] || 3_600_000,
+           now_fn: clock,
+           transmit_fn: fn priority, pgn, payload -> send(test_pid, {:tx, priority, pgn, payload}) end,
+           stream_fn: opts[:stream_fn] || fn streamed -> send(test_pid, {:stream, streamed}) end,
+           name: nil
+         ] ++ Keyword.take(opts, [:stream_interval_ms])},
         id: {Broadcaster, System.unique_integer([:positive])}
       )
 
@@ -253,6 +257,167 @@ defmodule NauticNet.Compute.BroadcasterTest do
       %{bcast: b} = start_bcast(values)
       Broadcaster.tick_now(b)
       refute Broadcaster.broadcasting?(b)
+    end
+  end
+
+  describe "backend streamback (Phase 10)" do
+    test "a valid stream_to_backend def's value is streamed as {id, value} (no at)" do
+      values = [
+        result(
+          %{id: "stream-1", output_field: "speed_water_referenced", stream_to_backend: true},
+          %{"value" => 4.0},
+          true
+        )
+      ]
+
+      %{bcast: b} = start_bcast(values)
+      Broadcaster.tick_now(b)
+
+      assert_receive {:stream, streamed}
+      assert [%{id: "stream-1", value: value}] = streamed
+      assert_in_delta value, 4.0, 0.001
+      # The streamed payload omits per-sample timestamps (the server stamps receipt).
+      refute Map.has_key?(hd(streamed), :at)
+    end
+
+    test "stream_to_backend == false is NOT streamed (even when valid + broadcasting)" do
+      values = [result(%{id: "no-stream", stream_to_backend: false}, %{"value" => 4.0}, true)]
+      %{bcast: b} = start_bcast(values)
+      Broadcaster.tick_now(b)
+      # The bus broadcast still happens, but nothing is streamed to the backend.
+      refute_receive {:stream, _}, 50
+    end
+
+    test "an invalid def is NOT streamed (no stale/garbage to the backend)" do
+      values = [result(%{id: "invalid", stream_to_backend: true}, %{"value" => 4.0}, false)]
+      %{bcast: b} = start_bcast(values)
+      Broadcaster.tick_now(b)
+      refute_receive {:stream, _}, 50
+    end
+
+    test "multiple due stream values are batched into ONE flush" do
+      values = [
+        result(%{id: "a", output_field: "speed_water_referenced", stream_to_backend: true}, %{"value" => 1.0}, true),
+        result(%{id: "b", output_field: "speed_water_referenced", stream_to_backend: true}, %{"value" => 2.0}, true)
+      ]
+
+      %{bcast: b} = start_bcast(values)
+      Broadcaster.tick_now(b)
+
+      # Exactly ONE stream message carrying BOTH values (not one message per value).
+      assert_receive {:stream, streamed}
+      ids = Enum.map(streamed, & &1.id) |> Enum.sort()
+      assert ids == ["a", "b"]
+      refute_receive {:stream, _}, 50
+    end
+
+    test "the streamed value is the DAMPED (smoothed) value, not the raw input" do
+      clock = :counters.new(1, [])
+      :counters.put(clock, 1, 0)
+      now_fn = fn -> :counters.get(clock, 1) end
+
+      damp = %{
+        id: "damp-stream",
+        output_field: "speed_water_referenced",
+        damping_seconds: 2.0,
+        broadcast_rate_hz: 100.0,
+        stream_to_backend: true
+      }
+
+      {:ok, engine} = StubEngine.start([result(damp, %{"value" => 0.0}, true)])
+      test_pid = self()
+
+      b =
+        start_supervised!(
+          {Broadcaster,
+           engine: {StubEngine, engine},
+           tick_ms: 3_600_000,
+           now_fn: now_fn,
+           transmit_fn: fn _p, _pgn, _payload -> :ok end,
+           stream_fn: fn streamed -> send(test_pid, {:stream, streamed}) end,
+           stream_interval_ms: 500,
+           name: nil},
+          id: {Broadcaster, System.unique_integer([:positive])}
+        )
+
+      # First tick at t=0 seeds the EWMA at 0.0 and streams 0.0.
+      Broadcaster.tick_now(b)
+      assert_receive {:stream, [%{id: "damp-stream", value: v0}]}
+      assert_in_delta v0, 0.0, 0.001
+
+      # Step input to 10.0; advance 1s with tau=2s. The streamed value must be the
+      # smoothed value (strictly between 0 and 10), the SAME value the bus gets — not
+      # the raw 10.0.
+      StubEngine.set(engine, [result(damp, %{"value" => 10.0}, true)])
+      :counters.put(clock, 1, 1_000)
+      Broadcaster.tick_now(b)
+      assert_receive {:stream, [%{id: "damp-stream", value: v1}]}
+      assert v1 > 0.5 and v1 < 9.5
+    end
+
+    test "a multi-output library calc streams its PRIMARY output (output_field)" do
+      values = [
+        result(
+          %{
+            id: "wind",
+            definition_type: :library,
+            output_pgn: 130_306,
+            output_field: "true_wind_speed",
+            output_reference: "true",
+            damping_seconds: 0.0,
+            stream_to_backend: true
+          },
+          %{"true_wind_speed" => 8.0, "true_wind_angle" => 30.0, "true_wind_direction" => 210.0},
+          true
+        )
+      ]
+
+      %{bcast: b} = start_bcast(values)
+      Broadcaster.tick_now(b)
+
+      assert_receive {:stream, [%{id: "wind", value: value}]}
+      assert_in_delta value, 8.0, 0.001
+    end
+
+    test "the stream is rate-limited to ~2 Hz, independent of a 50 Hz broadcast rate" do
+      clock = :counters.new(1, [])
+      :counters.put(clock, 1, 0)
+      now_fn = fn -> :counters.get(clock, 1) end
+
+      # broadcast_rate_hz is high (would emit on every 10 Hz tick), but the stream must
+      # be capped at ~2 Hz (a 500 ms interval).
+      values = [
+        result(
+          %{id: "fast", output_field: "speed_water_referenced", broadcast_rate_hz: 50.0, stream_to_backend: true},
+          %{"value" => 4.0},
+          true
+        )
+      ]
+
+      %{bcast: b} = start_bcast(values, clock: now_fn, stream_interval_ms: 500)
+
+      # 10 ticks 100 ms apart = 1 second of 10 Hz ticks.
+      stream_msgs =
+        Enum.reduce(0..9, 0, fn i, acc ->
+          :counters.put(clock, 1, i * 100)
+          Broadcaster.tick_now(b)
+
+          receive do
+            {:stream, _} -> acc + 1
+          after
+            0 -> acc
+          end
+        end)
+
+      # At 2 Hz over ~1s of ticks we expect ~2 stream flushes (t=0 and ~t=500ms), NOT 10.
+      assert stream_msgs in 2..3
+    end
+
+    test "no stream flush is sent when there are no eligible stream values" do
+      values = [result(%{id: "x", broadcast_enabled: true, stream_to_backend: false}, %{"value" => 4.0}, true)]
+      %{bcast: b} = start_bcast(values)
+      Broadcaster.tick_now(b)
+      refute_receive {:stream, _}, 50
     end
   end
 end
