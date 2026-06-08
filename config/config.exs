@@ -30,31 +30,19 @@ config :nautic_net_device,
        System.get_env("REQUIRE_SECURE_TRANSPORT") == "true"
 
 # Secure-transport wiring. The SessionHolder is cheap and starts in EVERY
-# environment (the UDP send path + tests read it). The WSS ChannelClient and the
-# boot-time self-registration provisioner are gated to the real device target AND
-# require an explicit enabled flag; on host/test they never start. The ChannelClient
-# additionally self-gates in `init` (idle unless registered + identity provisioned +
-# server pinned) so even when enabled it is safe to start before provisioning.
+# environment (the UDP send path + tests read it). The WSS ChannelClient, the
+# boot-time self-registration provisioner, and the post-race BulkUploader are gated
+# to the real device target AND the PINNED SERVER PUBLIC KEY being configured (see
+# below); on host/test they never start. Each also self-gates at runtime (the
+# ChannelClient idles unless registered + identity provisioned + server pinned; the
+# BootProvisioner no-ops when not pinned), so this is belt-and-suspenders.
 #
-#   :secure_channel_enabled   - start the WSS ChannelClient (target-only). Default
-#                               false; target.exs/runtime sets it true once secure
-#                               transport is being rolled out.
-#   :secure_register_on_boot  - run the one-shot boot provisioner (target-only) that
-#                               generates the device identity and TOKENLESSLY
-#                               self-registers it with the server (proof-of-possession,
-#                               no claim token). An admin later associates the device
-#                               to an account in the web panel. Default false.
-#   :bulk_upload_enabled      - post-race signed bulk upload of finalized recordings.
-#                               Default false; flips on with the rest of the rollout.
-# A single switch turns on the secure-transport client surface (channel + boot
-# register + bulk upload) so the rollout flips them together; `require_secure_transport`
-# above is the SEPARATE, later cutover that stops emitting plaintext. Unset -> false
-# (host/test + un-provisioned firmware stay dormant).
-secure_enabled? = System.get_env("SECURE_TRANSPORT_ENABLED") == "true"
-config :nautic_net_device, :secure_channel_enabled, secure_enabled?
-config :nautic_net_device, :secure_register_on_boot, secure_enabled?
-config :nautic_net_device, :bulk_upload_enabled, secure_enabled?
-
+# There is NO separate build-time enable flag: the single "secure transport is
+# configured" signal IS the pinned server public key below. Setting
+# SECURE_TRANSPORT_SERVER_PUBLIC_KEY enables secure transport; unset = legacy/plaintext.
+# `require_secure_transport` above is the SEPARATE, later cutover that stops emitting
+# plaintext — it is unrelated to whether the secure-transport children start.
+#
 # Provisioning value read from the BUILD-HOST environment at firmware-compile time
 # (same mechanism as API_ENDPOINT above) and baked into the image. Unset (host/test
 # or un-provisioned firmware) -> nil, and the secure-transport modules treat
@@ -65,7 +53,8 @@ config :nautic_net_device, :bulk_upload_enabled, secure_enabled?
 #       (raw 32 bytes or 64-char hex); the initiator verifies the HELLO signature
 #       against it (no PKI). It is also the only config the boot self-registration
 #       needs (no out-of-band claim token / nonce anymore — registration is tokenless
-#       and an admin associates the device to an account after it registers).
+#       and an admin associates the device to an account after it registers). It is
+#       the SINGLE enable for the secure-transport children.
 config :nautic_net_device, NauticNet.SecureTransport.ServerIdentity,
   public_key: System.get_env("SECURE_TRANSPORT_SERVER_PUBLIC_KEY")
 

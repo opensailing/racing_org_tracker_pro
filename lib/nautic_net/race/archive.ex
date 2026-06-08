@@ -148,9 +148,7 @@ defmodule NauticNet.Race.Archive do
         )
 
       _ ->
-        Logger.info(
-          "Bulk upload skipped for #{recording.recording_id}: no race_session_id on the assignment"
-        )
+        Logger.info("Bulk upload skipped for #{recording.recording_id}: no race_session_id on the assignment")
 
         :ok
     end
@@ -164,20 +162,21 @@ defmodule NauticNet.Race.Archive do
     end
   end
 
-  # Default trigger: only fire the bulk upload when it is enabled AND the device has
-  # a provisioned identity (the uploader signs every request). Otherwise no-op — the
-  # uploader itself also no-ops cleanly with no identity, but gating here avoids the
-  # async cast + log noise on un-provisioned devices.
+  # Default trigger: only fire the bulk upload when secure transport is configured
+  # (the pinned server public key is present — the single secure-transport enable)
+  # AND the device has a provisioned identity (the uploader signs every request).
+  # Otherwise no-op — the uploader itself also no-ops cleanly with no identity, but
+  # gating here avoids the async cast + log noise on un-provisioned devices.
   defp default_bulk_upload(opts) do
-    if bulk_upload_enabled?() and provisioned?() do
+    if secure_transport_configured?() and provisioned?() do
       BulkUploader.upload_async(opts)
     else
       :ok
     end
   end
 
-  defp bulk_upload_enabled? do
-    Application.get_env(:nautic_net_device, :bulk_upload_enabled, false) == true
+  defp secure_transport_configured? do
+    NauticNet.SecureTransport.ServerIdentity.configured?()
   end
 
   defp provisioned? do

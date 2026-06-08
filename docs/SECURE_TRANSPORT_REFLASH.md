@@ -101,7 +101,7 @@ Provisioning values:
 
 | Env var | Maps to (wired in config.exs) | Purpose |
 |---|---|---|
-| `SECURE_TRANSPORT_SERVER_PUBLIC_KEY` | `ServerIdentity, public_key:` | The server pubkey from §1.2 (64-char hex or raw 32 bytes). The device's server-trust anchor AND the only config the boot self-registration needs. |
+| `SECURE_TRANSPORT_SERVER_PUBLIC_KEY` | `ServerIdentity, public_key:` | The server pubkey from §1.2 (64-char hex or raw 32 bytes). The device's server-trust anchor, the only config the boot self-registration needs, AND the SINGLE enable for the secure-transport children. **Setting it enables secure transport; unset = legacy/plaintext.** |
 | `API_ENDPOINT` | `:api_endpoint` | Server HTTPS base (register + bulk upload, and WS derivation). |
 | `UDP_ENDPOINT` | `:udp_endpoint` | Server UDP host:port for telemetry. |
 | `SECURE_TRANSPORT_WS_URL` (optional) | read directly by `ChannelClient` | Override the WSS channel URL. Default derives from `API_ENDPOINT` (`https`→`wss`, path `/device_socket/websocket`). |
@@ -111,18 +111,22 @@ Provisioning values:
 > public key, and the same image is safe to flash onto any number of devices (each
 > generates its own identity and registers independently; the server is idempotent).
 
-Rollout switches (also build-host env, read by config.exs; unset = the safe default):
+The device-side plaintext kill switch (also build-host env, read by config.exs; unset
+= the safe default). It is SEPARATE from enabling secure transport (above) and only
+governs whether the device may still fall back to plaintext when no live session
+exists:
 
 | Env var | Set to (initial) | Effect |
 |---|---|---|
-| `SECURE_TRANSPORT_ENABLED` | `true` | Single switch that drives `:secure_register_on_boot` + `:secure_channel_enabled` + `:bulk_upload_enabled`: starts the boot self-registration, the WSS `ChannelClient`, and the post-race `BulkUploader` (all target-only). |
 | `REQUIRE_SECURE_TRANSPORT` | unset / `false` **(initially)** | Device-side plaintext kill switch (`:require_secure_transport`). Leave OFF until the enforcement flip (§4). |
 
-> The `BootProvisioner` / `ChannelClient` / `BulkUploader` start only on a real device
-> target (`MIX_TARGET` != `host`) AND when `SECURE_TRANSPORT_ENABLED=true`, matching how
-> NervesHubLink / the UDP path are gated. `SessionHolder` starts in every environment
-> (cheap, idle). Even when started, `ChannelClient` self-gates idle until registered +
-> identity provisioned + server pinned, so the order of provisioning is forgiving.
+> There is NO separate build-time enable flag. The `BootProvisioner` / `ChannelClient`
+> / `BulkUploader` start only on a real device target (`MIX_TARGET` != `host`) AND when
+> `SECURE_TRANSPORT_SERVER_PUBLIC_KEY` is set (the pinned key IS the enable), matching
+> how NervesHubLink / the UDP path are gated. `SessionHolder` starts in every
+> environment (cheap, idle). Even when started, `ChannelClient` self-gates idle until
+> registered + identity provisioned + server pinned, so the order of provisioning is
+> forgiving.
 
 ### 2.1 Reflash the firmware
 
@@ -132,8 +136,7 @@ Export the environment, then build + flash, all in the same shell:
 export API_ENDPOINT="https://sailroute-backend.fly.dev"      # your server base
 export UDP_ENDPOINT="sailroute-backend.fly.dev:4001"
 export PRODUCT="logger"
-export SECURE_TRANSPORT_SERVER_PUBLIC_KEY="<64-char hex from §1.2>"
-export SECURE_TRANSPORT_ENABLED=true        # turn on register + channel + bulk
+export SECURE_TRANSPORT_SERVER_PUBLIC_KEY="<64-char hex from §1.2>"  # the SINGLE enable: setting it turns on register + channel + bulk
 # REQUIRE_SECURE_TRANSPORT stays unset until the §4 cutover
 
 MIX_TARGET=<target> mix firmware

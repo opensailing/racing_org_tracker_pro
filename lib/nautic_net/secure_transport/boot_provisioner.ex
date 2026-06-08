@@ -23,9 +23,9 @@ defmodule NauticNet.SecureTransport.BootProvisioner do
 
   This is a transient, self-terminating GenServer (`restart: :transient`): it does
   its work in `handle_continue/2` then stops `:normal`, so it never loops. It is
-  added to the supervision tree ONLY on the real device target AND when
-  `config :nautic_net_device, :secure_register_on_boot` is true. Even when started it
-  is defensive:
+  added to the supervision tree ONLY on the real device target AND when the pinned
+  server public key is configured (`ServerIdentity.configured?` — the single
+  secure-transport enable). Even when started it is defensive:
 
     * Server not pinned (`ServerIdentity` unconfigured) -> no-op, stop (there is no
       trusted server to register against yet).
@@ -99,9 +99,7 @@ defmodule NauticNet.SecureTransport.BootProvisioner do
 
     cond do
       not ServerIdentity.configured?() ->
-        Logger.info(
-          "[BootProvisioner] server public key not pinned; staying unregistered until provisioned"
-        )
+        Logger.info("[BootProvisioner] server public key not pinned; staying unregistered until provisioned")
 
         {:error, :not_configured}
 

@@ -82,46 +82,45 @@ defmodule NauticNet.Application do
   # P9-job-6 secure-transport children, appended after the network/HTTP deps they
   # rely on. The SessionHolder is started inline above (it runs in EVERY environment:
   # the UDP send path + tests read it, and it is idle/cheap with no session). These
-  # extra children are config + target gated:
+  # extra children are gated together by `secure_transport_configured?/1` — a real
+  # device target AND the pinned server public key being configured (there is no
+  # separate enable flag; the pinned key IS the enable):
   #
-  #   * BootProvisioner — one-shot boot self-registration (target +
-  #     :secure_register_on_boot). It generates the device identity and tokenlessly
-  #     registers it with the server, which (once an admin associates it) makes the
-  #     ChannelClient connectable.
-  #   * ChannelClient — outbound WSS command channel (target + :secure_channel_enabled).
-  #     It additionally SELF-GATES in init (idle unless claimed + identity provisioned
-  #     + server pinned), so it is safe even if started before provisioning.
+  #   * BootProvisioner — one-shot boot self-registration. It generates the device
+  #     identity and tokenlessly registers it with the server, which (once an admin
+  #     associates it) makes the ChannelClient connectable.
+  #   * ChannelClient — outbound WSS command channel. It additionally SELF-GATES in
+  #     init (idle unless claimed + identity provisioned + server pinned), so it is
+  #     safe even if started before provisioning.
   #   * BulkUploader — thin GenServer giving `upload_async/2` a named server for the
-  #     Archive's post-race trigger. Cheap + idle; started whenever the channel is
-  #     enabled (the same rollout flag).
+  #     Archive's post-race trigger. Cheap + idle.
+  #
+  # Each child also self-gates at runtime, so this is belt-and-suspenders. On
+  # host/test (`real_target?` false) they never start.
   #
   # Ordering: BootProvisioner (registers) → ChannelClient (connects/handshakes) →
   # BulkUploader, all AFTER SessionHolder.
   defp secure_transport_children(target) do
-    boot = if register_on_boot?(target), do: [NauticNet.SecureTransport.BootProvisioner], else: []
-
-    channel =
-      if secure_channel_enabled?(target) do
-        [
-          NauticNet.SecureTransport.ChannelClient,
-          NauticNet.Race.BulkUploader
-        ]
-      else
-        []
-      end
-
-    boot ++ channel
+    if secure_transport_configured?(target) do
+      [
+        NauticNet.SecureTransport.BootProvisioner,
+        NauticNet.SecureTransport.ChannelClient,
+        NauticNet.Race.BulkUploader
+      ]
+    else
+      []
+    end
   end
 
-  # Real device target only (mirrors how NervesHubLink/the UDP/secure paths gate),
-  # AND the rollout enabled flag (default false in config.exs).
-  defp secure_channel_enabled?(target) do
-    real_target?(target) and Application.get_env(:nautic_net_device, :secure_channel_enabled, false) == true
-  end
-
-  defp register_on_boot?(target) do
-    real_target?(target) and
-      Application.get_env(:nautic_net_device, :secure_register_on_boot, false) == true
+  @doc """
+  Whether the secure-transport children should start: a real device target AND the
+  pinned server public key is configured (`ServerIdentity.configured?`). There is no
+  separate enable flag — the pinned key is the single enable. Host/test
+  (`real_target?` false) and un-pinned firmware return `false`.
+  """
+  @spec secure_transport_configured?(atom()) :: boolean()
+  def secure_transport_configured?(target) do
+    real_target?(target) and NauticNet.SecureTransport.ServerIdentity.configured?()
   end
 
   defp real_target?(:host), do: false
