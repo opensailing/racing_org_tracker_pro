@@ -60,6 +60,7 @@ defmodule NauticNet.Application do
       archive_child(),
       {NauticNet.Nav.Broadcaster, name: NauticNet.Nav.Broadcaster},
       {NauticNet.Compute.Broadcaster, name: NauticNet.Compute.Broadcaster},
+      race_timer_broadcaster_child(),
       {NauticNet.Serial, serial_config()},
       # SessionHolder BEFORE the UDP send path + ChannelClient: the UDP path reads
       # the live session from the holder, and the ChannelClient publishes into it.
@@ -198,6 +199,18 @@ defmodule NauticNet.Application do
      base_dir: Application.get_env(:nautic_net_device, :race_archive_directory),
      sampling: NauticNet.Sampling,
      device_id: NauticNet.boat_identifier()}
+  end
+
+  # Broadcasts the B&G race-start countdown (PGN 130824 Key 117) at ~1 Hz when the
+  # device holds a race assignment with a gun time. It is a PROPRIETARY message
+  # gated behind `:race_timer_broadcast_enabled` (default OFF) until on-hardware
+  # validation, mirroring the existing "130824 needs on-hardware validation" posture;
+  # flip the flag per-device after the sniff. Cheap + a no-op while disabled or
+  # unassigned.
+  defp race_timer_broadcaster_child do
+    {NauticNet.Compute.RaceTimerBroadcaster,
+     name: NauticNet.Compute.RaceTimerBroadcaster,
+     enabled: Application.get_env(:nautic_net_device, :race_timer_broadcast_enabled, false) == true}
   end
 
   defp product do

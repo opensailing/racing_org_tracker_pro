@@ -51,6 +51,15 @@ config :nautic_net_device,
 config :nautic_net_device, NauticNet.SecureTransport.ServerIdentity,
   public_key: System.get_env("SECURE_TRANSPORT_SERVER_PUBLIC_KEY")
 
+# Race-start countdown broadcast (PGN 130824 Key 117 "Race Timer", B&G). When the
+# device holds a race assignment with a gun time it can broadcast a ~1 Hz countdown so
+# the boat's B&G/Zeus display ticks the same timer. This is a PROPRIETARY message and
+# ships OFF until the on-hardware sniff confirms the wire format (manufacturer-header
+# reserved bits, the through-gun representation, any companion start-line keys, the
+# device NAME). Flip to `true` per-device after that validation. See
+# NauticNet.Compute.RaceTimerBroadcaster.
+config :nautic_net_device, :race_timer_broadcast_enabled, false
+
 # Data upload filter modes:
 # :permissive - Allow data to be uploaded by any sensor for a data type
 # :strict - Only allow data to be uploaded if a sensor is selected -- via a filter -- for the data type

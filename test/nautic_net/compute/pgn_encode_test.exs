@@ -158,6 +158,51 @@ defmodule NauticNet.Compute.PgnEncodeTest do
     end
   end
 
+  describe "130824 B&G Race Timer (Key 117)" do
+    # canboat: PGN 130824 "B&G: key-value data", Key 117 "Race Timer", value u32 in
+    # MILLISECONDS (resolution 0.001 s). The descriptor packs Key (12 bits) + Length
+    # (4 bits, = value byte length) into 2 little-endian bytes: low byte = key[0..7],
+    # high byte = key[8..11] | (Length << 4). Key 117 = 0x075, Length 4 -> "75 40".
+    # The full payload is the 2-byte B&G/Marine manufacturer header, then the pair.
+
+    # B&G = 381, Marine = 4: (381 &&& 0x7FF) | (0b11 <<< 11) | (4 <<< 13) = 0x997D,
+    # serialized little-endian -> bytes 7D 99.
+    @bandg_header <<0x7D, 0x99>>
+
+    test "encodes the worked 5:00 example exactly: 7D 99 75 40 E0 93 04 00" do
+      # 300_000 ms = 0x000493E0; u32 LE -> E0 93 04 00; pair -> 75 40 E0 93 04 00.
+      assert PgnEncode.race_timer(300_000) == @bandg_header <> <<0x75, 0x40, 0xE0, 0x93, 0x04, 0x00>>
+    end
+
+    test "the descriptor word is always Key=117 Length=4 (75 40), header first" do
+      <<header::binary-2, 0x75, 0x40, _value::binary-4>> = PgnEncode.race_timer(123_456)
+      assert header == @bandg_header
+    end
+
+    test "zero ms encodes as all-zero value bytes (the gun)" do
+      assert PgnEncode.race_timer(0) == @bandg_header <> <<0x75, 0x40, 0x00, 0x00, 0x00, 0x00>>
+    end
+
+    test "value is uint32 little-endian milliseconds for an arbitrary count" do
+      # 1500 ms = 0x000005DC -> LE DC 05 00 00.
+      assert PgnEncode.race_timer(1_500) == @bandg_header <> <<0x75, 0x40, 0xDC, 0x05, 0x00, 0x00>>
+    end
+
+    test "the payload is exactly 8 bytes (2 header + 6 pair) — one fast-packet frame's worth" do
+      assert byte_size(PgnEncode.race_timer(60_000)) == 8
+    end
+
+    test "race_timer_from/2 computes (gun - now) in ms from monotonic-ms inputs" do
+      # gun 90s out from now (in ms): 90_000 ms remaining.
+      assert PgnEncode.race_timer_from(90_000, 0) == PgnEncode.race_timer(90_000)
+    end
+
+    test "race_timer_from/2 past the gun encodes the elapsed magnitude (count-up)" do
+      # now 30s past the gun: |gun - now| = 30_000 ms elapsed.
+      assert PgnEncode.race_timer_from(0, 30_000) == PgnEncode.race_timer(30_000)
+    end
+  end
+
   describe "unknown / unencodable" do
     test "an unknown PGN returns :error" do
       d = def_for(999_999, %{output_field: "value"})

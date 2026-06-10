@@ -85,6 +85,55 @@ defmodule NauticNet.Compute.PgnEncode do
     _ -> :error
   end
 
+  # --- 130824 B&G Race Timer (Key 117) ---------------------------------------------
+
+  # canboat: PGN 130824 "B&G: key-value data". A B&G/Zeus display ticks a race
+  # countdown when it sees Key 117 "Race Timer" (value u32, resolution 0.001 s, i.e.
+  # MILLISECONDS). The payload is the canonical proprietary header followed by one
+  # key/value entry, fast-packet framed by the transmit layer (>8 bytes once the
+  # frame index is added). See `NauticNet.Compute.RaceTimerBroadcaster`.
+  @race_timer_key 117
+
+  @doc """
+  The fast-packet payload for the B&G Race Timer (PGN 130824, Key 117) for a
+  countdown of `ms` MILLISECONDS: the 2-byte B&G/Marine manufacturer header followed
+  by the `Key=117 Length=4 <u32 LE ms>` entry. `ms` is clamped non-negative and into
+  the u32 range. For a 5:00 countdown (300_000 ms) this is
+  `<<0x7D, 0x99, 0x75, 0x40, 0xE0, 0x93, 0x04, 0x00>>`.
+  """
+  @spec race_timer(integer()) :: binary()
+  def race_timer(ms) when is_integer(ms) do
+    value = clamp_u32(ms)
+    manufacturer_word(@mfg_bandg) |> serialize_with_entry(@race_timer_key, <<value::little-32>>)
+  end
+
+  @doc """
+  The Race Timer payload from a `gun` time and `now`, in the SAME unit (e.g. both
+  monotonic-/unix-milliseconds): encodes `gun - now`, counting DOWN to the gun and UP
+  (elapsed) afterward.
+
+  ## On-hardware validation seam (THROUGH THE GUN)
+
+  canboat documents the value as an unsigned DURATION; the exact representation as the
+  countdown crosses zero (whether the display wants the elapsed magnitude, a wrapped
+  unsigned, or a separate "started" flag) is the single thing the on-hardware sniff
+  must confirm. That decision is isolated in `through_gun_ms/1` ONLY — change it there
+  to retune post-gun behavior without touching the wire format or the broadcaster.
+  """
+  @spec race_timer_from(integer(), integer()) :: binary()
+  def race_timer_from(gun_ms, now_ms) when is_integer(gun_ms) and is_integer(now_ms) do
+    race_timer(through_gun_ms(gun_ms - now_ms))
+  end
+
+  # THROUGH-GUN REPRESENTATION (hardware-validation tweak point). Before the gun the
+  # remaining time is positive and used as-is (count DOWN). At/after the gun it is <= 0;
+  # we currently send the ELAPSED MAGNITUDE (count UP from 0). If the sniff shows a
+  # B&G display instead expects the value to keep decreasing through zero / wrap, OR a
+  # companion "started" key, adjust HERE (and add the key in `race_timer/1`).
+  @spec through_gun_ms(integer()) :: non_neg_integer()
+  defp through_gun_ms(remaining_ms) when remaining_ms >= 0, do: remaining_ms
+  defp through_gun_ms(remaining_ms), do: -remaining_ms
+
   # --- 130306 Wind (speed + angle + reference) -------------------------------------
 
   defp do_encode(130_306, def, outputs) do
@@ -270,6 +319,19 @@ defmodule NauticNet.Compute.PgnEncode do
   defp manufacturer_word(mfg_code) do
     import Bitwise
     (mfg_code &&& 0x7FF) ||| 0x3 <<< 11 ||| (@industry_marine &&& 0x7) <<< 13
+  end
+
+  # Serialize a B&G "key-value data" (PGN 130824) payload: the manufacturer header
+  # word (little-endian-16), then one key/value entry. Each entry is a 2-byte
+  # descriptor packing Key (12 bits) + Length (4 bits = byte_size(value)) — low byte =
+  # key[0..7], high byte = key[8..11] | (Length << 4) — followed by the little-endian
+  # value bytes. Reused by every 130824 key (composes with `manufacturer_word/1`).
+  defp serialize_with_entry(mfg_word, key, value) when is_integer(mfg_word) and is_binary(value) do
+    import Bitwise
+    length = byte_size(value)
+    low = key &&& 0xFF
+    high = (key >>> 8 &&& 0x0F) ||| length <<< 4
+    <<mfg_word::little-16, low::8, high::8>> <> value
   end
 
   defp clamp_u16(v) when v < 0, do: 0
