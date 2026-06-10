@@ -58,6 +58,13 @@ defmodule NauticNet.Compute.PgnEncode do
   @depth_cm_scale 100
   @temp_scale 100
 
+  # 129284/129285 resolutions (canboat).
+  @i32_unknown 0x7FFFFFFF
+  @distance_cm_scale 100
+  @bearing_rad_scale 10_000
+  @latlon_scale 1.0e7
+  @closing_velocity_cm_s_scale 100
+
   # Direction reference lookup (DIRECTION_REFERENCE): true = 0, magnetic = 1.
   @ref_true 0
   @ref_magnetic 1
@@ -133,6 +140,71 @@ defmodule NauticNet.Compute.PgnEncode do
   @spec through_gun_ms(integer()) :: non_neg_integer()
   defp through_gun_ms(remaining_ms) when remaining_ms >= 0, do: remaining_ms
   defp through_gun_ms(remaining_ms), do: -remaining_ms
+
+  # --- 129284 Navigation Data (bearing/distance/destination) ------------------------
+
+  # canboat / ttlappalainen "Navigation Data": the data-box a B&G/Zeus plotter renders
+  # for the active waypoint. FAST-PACKET, priority 3, 34 bytes. The plotter ties our
+  # `destination_wp_number` to the WP ID in 129285 to label the waypoint.
+  @doc """
+  The 34-byte PGN 129284 "Navigation Data" payload from a navigation map. Fields
+  (in wire order, all multi-byte little-endian):
+
+    * `:sid` — uint8 (sequence id; 0 if unused)
+    * `:distance_to_dest_m` — uint32, 0.01 m; `nil` → unknown
+    * flags byte — `:reference` (`:true`/`:magnetic`), `:perpendicular_crossed?`,
+      `:arrival_circle_entered?`, `:calculation_type` (`:great_circle`/`:rhumbline`),
+      each 2 bits
+    * ETA Time uint32 + ETA Date uint16 — always the unknown sentinels (the device
+      does not compute an ETA)
+    * `:bearing_origin_to_dest_rad` — uint16, 1e-4 rad; `nil` → unknown
+    * `:bearing_position_to_dest_rad` — uint16, 1e-4 rad (the live steer-to bearing);
+      `nil` → unknown
+    * `:origin_wp_number` — uint32; `nil` → unknown
+    * `:destination_wp_number` — uint32 (links to 129285 WP ID)
+    * `:destination` — `{lat, lon}` degrees → two int32 1e-7; `nil` → unknown
+    * `:closing_velocity_m_s` — int16, 0.01 m/s; `nil` → unknown
+  """
+  @spec navigation_data_129284(map()) :: binary()
+  def navigation_data_129284(nav) when is_map(nav) do
+    {dest_lat, dest_lon} = encode_latlon_1e7(Map.get(nav, :destination))
+
+    <<u8(Map.get(nav, :sid, 0))::8, encode_distance_cm(Map.get(nav, :distance_to_dest_m))::little-32,
+      nav_flags_byte(nav)::8, @u32_unknown::little-32, @u16_unknown::little-16,
+      encode_bearing_rad(Map.get(nav, :bearing_origin_to_dest_rad))::little-16,
+      encode_bearing_rad(Map.get(nav, :bearing_position_to_dest_rad))::little-16,
+      encode_wp_number(Map.get(nav, :origin_wp_number))::little-32,
+      encode_wp_number(Map.get(nav, :destination_wp_number))::little-32, dest_lat::little-signed-32,
+      dest_lon::little-signed-32, encode_closing_velocity(Map.get(nav, :closing_velocity_m_s))::little-signed-16>>
+  end
+
+  # --- 129285 Navigation Route/WP Information (the label) ---------------------------
+
+  @doc """
+  The PGN 129285 "Navigation - Route/WP Information" payload for a SINGLE waypoint —
+  the label a plotter ties to 129284 via the WP ID. FAST-PACKET, priority 6.
+
+  `wp` is `%{wp_id: integer, name: String.t() | nil, lat: float, lon: float}`. The
+  header carries Start RPS# = 1, nItems = 1, Database/Route ID = 0, Nav direction =
+  Forward (0), an empty route name; then one repeating block: WP ID (uint16), WP Name
+  (STRING_LAU), WP Latitude/Longitude (int32 1e-7).
+  """
+  @spec route_wp_129285(map()) :: binary()
+  def route_wp_129285(%{wp_id: wp_id, lat: lat, lon: lon} = wp) do
+    name = Map.get(wp, :name)
+    {wp_lat, wp_lon} = encode_latlon_1e7({lat, lon})
+
+    # Header: Start RPS#(1), nItems(1), Database ID(0), Route ID(0), nav-dir/supp byte
+    # (Forward=0), Route Name STRING_LAU (empty), reserved(8).
+    header =
+      <<1::little-16, 1::little-16, 0::little-16, 0::little-16, 0::8>> <>
+        string_lau("") <> <<@u8_unknown::8>>
+
+    wp_block =
+      <<u16(wp_id)::little-16>> <> string_lau(name) <> <<wp_lat::little-signed-32, wp_lon::little-signed-32>>
+
+    header <> wp_block
+  end
 
   # --- 130306 Wind (speed + angle + reference) -------------------------------------
 
@@ -307,6 +379,54 @@ defmodule NauticNet.Compute.PgnEncode do
 
   defp instance_byte(n) when is_integer(n) and n >= 0 and n <= 255, do: n
   defp instance_byte(_), do: 0
+
+  # --- 129284/129285 field encoders (isolated bit-packing) -------------------------
+
+  # Distance metres -> u32 centimetres; nil -> unknown sentinel.
+  defp encode_distance_cm(nil), do: @u32_unknown
+  defp encode_distance_cm(m) when is_number(m), do: clamp_u32(round(m * @distance_cm_scale))
+
+  # Bearing radians -> u16 (1e-4 rad), wrapped to [0, 2π); nil -> unknown sentinel.
+  defp encode_bearing_rad(nil), do: @u16_unknown
+  defp encode_bearing_rad(rad) when is_number(rad), do: clamp_u16(round(normalize_rad(rad) * @bearing_rad_scale))
+
+  # Waypoint number -> u32; nil -> unknown sentinel.
+  defp encode_wp_number(nil), do: @u32_unknown
+  defp encode_wp_number(n) when is_integer(n) and n >= 0, do: min(n, @u32_unknown - 1)
+
+  # {lat, lon} degrees -> {i32, i32} at 1e-7 deg; nil -> unknown sentinels.
+  defp encode_latlon_1e7(nil), do: {@i32_unknown, @i32_unknown}
+
+  defp encode_latlon_1e7({lat, lon}) when is_number(lat) and is_number(lon),
+    do: {round(lat * @latlon_scale), round(lon * @latlon_scale)}
+
+  # Closing velocity m/s -> i16 (0.01 m/s); nil -> unknown sentinel.
+  defp encode_closing_velocity(nil), do: @i16_unknown
+  defp encode_closing_velocity(m_s) when is_number(m_s), do: clamp_i16(round(m_s * @closing_velocity_cm_s_scale))
+
+  # 129284 flags byte: 2 bits each, MSB->LSB calc-type | arrival | perpendicular | ref.
+  # ref: True=0, Magnetic=1. perp/arrival: No=0, Yes=1. calc: Great Circle=0, Rhumbline=1.
+  defp nav_flags_byte(nav) do
+    ref = if Map.get(nav, :reference) == :magnetic, do: 1, else: 0
+    perp = if Map.get(nav, :perpendicular_crossed?) == true, do: 1, else: 0
+    arrival = if Map.get(nav, :arrival_circle_entered?) == true, do: 1, else: 0
+    calc = if Map.get(nav, :calculation_type) == :rhumbline, do: 1, else: 0
+    <<byte::8>> = <<calc::2, arrival::2, perp::2, ref::2>>
+    byte
+  end
+
+  defp u8(n) when is_integer(n) and n >= 0 and n <= 255, do: n
+  defp u8(_), do: 0
+
+  defp u16(n) when is_integer(n) and n >= 0, do: min(n, @u16_unknown - 1)
+  defp u16(_), do: 0
+
+  # NMEA 2000 STRING_LAU: <<total_len::8, encoding::8, chars::binary>> where total_len
+  # includes the length and encoding bytes (so empty string -> 2), and encoding 1 = ASCII.
+  defp string_lau(str) do
+    bytes = to_string(str || "")
+    <<byte_size(bytes) + 2::8, 1::8, bytes::binary>>
+  end
 
   defp direction_reference("magnetic"), do: @ref_magnetic
   defp direction_reference(_), do: @ref_true

@@ -60,6 +60,17 @@ config :nautic_net_device, NauticNet.SecureTransport.ServerIdentity,
 # NauticNet.Compute.RaceTimerBroadcaster.
 config :nautic_net_device, :race_timer_broadcast_enabled, false
 
+# Next-waypoint NMEA 2000 broadcast (PGN 129284 Navigation Data + PGN 129285 Route/WP
+# Information). When the device holds a race assignment whose active mark carries a
+# position AND the device has a recent GPS fix, it broadcasts the bearing + distance to
+# that next mark at ~1 Hz so the boat's B&G/Zeus plotter shows the steer-to numbers (and,
+# where the plotter accepts it, the active waypoint). These are STANDARD nav PGNs, but
+# whether a given Navico/Zeus plotter ADOPTS an externally-sourced active waypoint onto
+# the chart (vs only rendering the data-box) is an on-hardware validation item, so this
+# ships OFF until that sniff. Flip to `true` per-device after validation. See
+# NauticNet.Compute.WaypointBroadcaster.
+config :nautic_net_device, :waypoint_broadcast_enabled, false
+
 # Data upload filter modes:
 # :permissive - Allow data to be uploaded by any sensor for a data type
 # :strict - Only allow data to be uploaded if a sensor is selected -- via a filter -- for the data type

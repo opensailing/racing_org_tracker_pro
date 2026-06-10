@@ -203,6 +203,155 @@ defmodule NauticNet.Compute.PgnEncodeTest do
     end
   end
 
+  # PGN 129284 "Navigation Data" — the bearing/distance/destination data-box that a
+  # B&G/Zeus plotter renders for the active waypoint. 34-byte fast packet. Field order
+  # and encodings per canboat + the ttlappalainen library (see PgnEncode.navigation_data_129284/1).
+  describe "129284 Navigation Data — exact byte layout" do
+    # A fully-specified nav input with distinct, decodable values per field.
+    defp nav_input do
+      %{
+        sid: 0x42,
+        # 1234.56 m -> round(*100) = 123456
+        distance_to_dest_m: 1234.56,
+        reference: true,
+        perpendicular_crossed?: false,
+        arrival_circle_entered?: false,
+        calculation_type: :great_circle,
+        # bearings in radians
+        bearing_origin_to_dest_rad: 0.5,
+        bearing_position_to_dest_rad: 1.25,
+        origin_wp_number: 7,
+        destination_wp_number: 9,
+        destination: {42.3601, -71.0589},
+        closing_velocity_m_s: 3.21
+      }
+    end
+
+    test "encodes all fields at the documented resolutions, 34 bytes" do
+      payload = PgnEncode.navigation_data_129284(nav_input())
+      assert byte_size(payload) == 34
+
+      <<sid::8, distance::little-32, _flags::8, eta_time::little-32, eta_date::little-16, brg_od::little-16,
+        brg_pd::little-16, origin_wp::little-32, dest_wp::little-32, dest_lat::little-signed-32,
+        dest_lon::little-signed-32, closing::little-signed-16>> = payload
+
+      assert sid == 0x42
+      # distance 0.01 m resolution
+      assert distance == 123_456
+      # ETA unknown (we do not compute it on the device)
+      assert eta_time == 0xFFFFFFFF
+      assert eta_date == 0xFFFF
+      # bearings 1e-4 rad resolution
+      assert brg_od == round(0.5 / 1.0e-4)
+      assert brg_pd == round(1.25 / 1.0e-4)
+      assert origin_wp == 7
+      assert dest_wp == 9
+      # lat/lon 1e-7 deg resolution
+      assert dest_lat == round(42.3601 * 1.0e7)
+      assert dest_lon == round(-71.0589 * 1.0e7)
+      # closing velocity 0.01 m/s resolution
+      assert closing == round(3.21 / 0.01)
+    end
+
+    test "the flags byte packs ref (2b) / perp (2b) / arrival (2b) / calc-type (2b)" do
+      # Magnetic ref (1), perpendicular crossed (1), arrival entered (1), rhumbline (1).
+      input = %{
+        nav_input()
+        | reference: :magnetic,
+          perpendicular_crossed?: true,
+          arrival_circle_entered?: true,
+          calculation_type: :rhumbline
+      }
+
+      <<_sid::8, _distance::little-32, flags::8, _rest::binary>> = PgnEncode.navigation_data_129284(input)
+      <<calc::2, arrival::2, perp::2, ref::2>> = <<flags::8>>
+      assert ref == 1
+      assert perp == 1
+      assert arrival == 1
+      assert calc == 1
+    end
+
+    test "a true/great-circle/not-crossed flags byte is all zeros in the low 8 bits" do
+      <<_sid::8, _distance::little-32, flags::8, _rest::binary>> = PgnEncode.navigation_data_129284(nav_input())
+      assert flags == 0x00
+    end
+
+    test "missing destination position / distance / bearings encode the unknown sentinels" do
+      input = %{
+        sid: 0,
+        distance_to_dest_m: nil,
+        reference: true,
+        perpendicular_crossed?: false,
+        arrival_circle_entered?: false,
+        calculation_type: :great_circle,
+        bearing_origin_to_dest_rad: nil,
+        bearing_position_to_dest_rad: nil,
+        origin_wp_number: nil,
+        destination_wp_number: 1,
+        destination: nil,
+        closing_velocity_m_s: nil
+      }
+
+      <<_sid::8, distance::little-32, _flags::8, _eta_time::little-32, _eta_date::little-16, brg_od::little-16,
+        brg_pd::little-16, origin_wp::little-32, dest_wp::little-32, dest_lat::little-signed-32,
+        dest_lon::little-signed-32, closing::little-signed-16>> = PgnEncode.navigation_data_129284(input)
+
+      assert distance == 0xFFFFFFFF
+      assert brg_od == 0xFFFF
+      assert brg_pd == 0xFFFF
+      assert origin_wp == 0xFFFFFFFF
+      assert dest_wp == 1
+      assert dest_lat == 0x7FFFFFFF
+      assert dest_lon == 0x7FFFFFFF
+      assert closing == 0x7FFF
+    end
+  end
+
+  # PGN 129285 "Navigation - Route/WP Information" — the LABEL the plotter ties to
+  # 129284.Destination Waypoint Number via WP ID. We emit a single-waypoint route.
+  describe "129285 Route/WP Information — one waypoint" do
+    test "encodes the header + one repeating WP block (STRING_LAU name, lat/lon)" do
+      payload =
+        PgnEncode.route_wp_129285(%{wp_id: 9, name: "WL", lat: 42.3601, lon: -71.0589})
+
+      # Header: start RPS#(u16) nItems(u16) database id(u16) route id(u16)
+      #         nav-dir(3b)+supp(2b)+reserved(3b) (1 byte) route-name STRING_LAU reserved(8)
+      <<start_rps::little-16, n_items::little-16, _db_id::little-16, _route_id::little-16, dir_byte::8, rest::binary>> =
+        payload
+
+      assert start_rps == 1
+      assert n_items == 1
+      # nav direction Forward (0) in the low 3 bits.
+      assert <<_supp_res::5, dir::3>> = <<dir_byte::8>>
+      assert dir == 0
+
+      # route name STRING_LAU: <len::8, enc::8, chars>. Empty route name -> len 2, enc 1 (ASCII).
+      <<rn_len::8, rn_enc::8, after_rn::binary>> = rest
+      assert rn_len == 2
+      assert rn_enc == 1
+      # reserved(8) after the route name
+      <<_reserved::8, wp_block::binary>> = after_rn
+
+      # WP block: WP ID(u16) WP name STRING_LAU  WP lat(i32 1e-7) WP lon(i32 1e-7)
+      <<wp_id::little-16, name_len::8, name_enc::8, body::binary>> = wp_block
+      assert wp_id == 9
+      # "WL" is 2 ASCII chars -> STRING_LAU length 4 (len + enc + 2 chars), enc 1.
+      assert name_len == 4
+      assert name_enc == 1
+      <<name::binary-2, lat::little-signed-32, lon::little-signed-32>> = body
+      assert name == "WL"
+      assert lat == round(42.3601 * 1.0e7)
+      assert lon == round(-71.0589 * 1.0e7)
+    end
+
+    test "an empty/nil waypoint name still produces a valid 2-byte STRING_LAU" do
+      payload = PgnEncode.route_wp_129285(%{wp_id: 3, name: nil, lat: 1.0, lon: 2.0})
+      # walk to the WP-name STRING_LAU and assert length 2 (just len+enc, no chars).
+      <<_hdr::binary-8, _dir::8, 2::8, 1::8, _res::8, 3::little-16, name_len::8, _name_enc::8, _::binary>> = payload
+      assert name_len == 2
+    end
+  end
+
   describe "unknown / unencodable" do
     test "an unknown PGN returns :error" do
       d = def_for(999_999, %{output_field: "value"})

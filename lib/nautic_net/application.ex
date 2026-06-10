@@ -61,6 +61,7 @@ defmodule NauticNet.Application do
       {NauticNet.Nav.Broadcaster, name: NauticNet.Nav.Broadcaster},
       {NauticNet.Compute.Broadcaster, name: NauticNet.Compute.Broadcaster},
       race_timer_broadcaster_child(),
+      waypoint_broadcaster_child(),
       {NauticNet.Serial, serial_config()},
       # SessionHolder BEFORE the UDP send path + ChannelClient: the UDP path reads
       # the live session from the holder, and the ChannelClient publishes into it.
@@ -211,6 +212,19 @@ defmodule NauticNet.Application do
     {NauticNet.Compute.RaceTimerBroadcaster,
      name: NauticNet.Compute.RaceTimerBroadcaster,
      enabled: Application.get_env(:nautic_net_device, :race_timer_broadcast_enabled, false) == true}
+  end
+
+  # Broadcasts the NEXT WAYPOINT to steer to (PGN 129284 Navigation Data + PGN 129285
+  # Route/WP Information) at ~1 Hz when the device holds a race assignment whose active
+  # mark carries a position AND a recent GPS fix is available. These are STANDARD nav
+  # PGNs; the gate `:waypoint_broadcast_enabled` (default OFF) holds it until the
+  # on-hardware sniff confirms a Navico/Zeus plotter ADOPTS the externally-sourced
+  # active waypoint onto the chart. Cheap + a no-op while disabled, unassigned, or
+  # before a GPS fix.
+  defp waypoint_broadcaster_child do
+    {NauticNet.Compute.WaypointBroadcaster,
+     name: NauticNet.Compute.WaypointBroadcaster,
+     enabled: Application.get_env(:nautic_net_device, :waypoint_broadcast_enabled, false) == true}
   end
 
   defp product do
