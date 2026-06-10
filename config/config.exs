@@ -11,6 +11,18 @@ Application.start(:nerves_bootstrap)
 {git_commit, 0} = System.cmd("git", ["rev-parse", "HEAD"])
 git_commit = String.trim(git_commit)
 
+# A build-host environment flag is "on" only for the canonical truthy spellings
+# `1 / true / yes / on` (case-insensitive, trimmed); everything else — including
+# unset — is OFF. Used by the race-broadcast validation gates below so a validation
+# firmware can be built by adding an env var to `.envrc` with NO code edit, while the
+# production DEFAULT stays OFF. See docs/N2K_RACE_BROADCAST_VALIDATION.md.
+env_flag = fn name ->
+  (System.get_env(name) || "")
+  |> String.trim()
+  |> String.downcase()
+  |> Kernel.in(["1", "true", "yes", "on"])
+end
+
 config :nautic_net_device,
   target: Mix.target(),
   api_endpoint: System.fetch_env!("API_ENDPOINT"),
@@ -58,7 +70,12 @@ config :nautic_net_device, NauticNet.SecureTransport.ServerIdentity,
 # reserved bits, the through-gun representation, any companion start-line keys, the
 # device NAME). Flip to `true` per-device after that validation. See
 # NauticNet.Compute.RaceTimerBroadcaster.
-config :nautic_net_device, :race_timer_broadcast_enabled, false
+#
+# DEFAULT OFF (production-safe). Override at BUILD time without a code edit by exporting
+# `RACE_TIMER_BROADCAST_ENABLED=true` (or 1/yes/on) in `.envrc` before the burn — see
+# docs/N2K_RACE_BROADCAST_VALIDATION.md. Host tests still drive the broadcaster ENABLED
+# via the `:enabled` start_link opt, independent of this build-time gate.
+config :nautic_net_device, :race_timer_broadcast_enabled, env_flag.("RACE_TIMER_BROADCAST_ENABLED")
 
 # Next-waypoint NMEA 2000 broadcast (PGN 129284 Navigation Data + PGN 129285 Route/WP
 # Information). When the device holds a race assignment whose active mark carries a
@@ -69,7 +86,12 @@ config :nautic_net_device, :race_timer_broadcast_enabled, false
 # the chart (vs only rendering the data-box) is an on-hardware validation item, so this
 # ships OFF until that sniff. Flip to `true` per-device after validation. See
 # NauticNet.Compute.WaypointBroadcaster.
-config :nautic_net_device, :waypoint_broadcast_enabled, false
+#
+# DEFAULT OFF (production-safe). Override at BUILD time without a code edit by exporting
+# `WAYPOINT_BROADCAST_ENABLED=true` (or 1/yes/on) in `.envrc` before the burn — see
+# docs/N2K_RACE_BROADCAST_VALIDATION.md. Host tests still drive the broadcaster ENABLED
+# via the `:enabled` start_link opt, independent of this build-time gate.
+config :nautic_net_device, :waypoint_broadcast_enabled, env_flag.("WAYPOINT_BROADCAST_ENABLED")
 
 # Data upload filter modes:
 # :permissive - Allow data to be uploaded by any sensor for a data type
