@@ -3,14 +3,15 @@
 Turn-key checklist for validating the two race-broadcast PGNs this firmware can emit on
 the boat's NMEA 2000 bus:
 
-| Broadcast | PGN(s) | Module | Build-time gate (env) | Default |
-|---|---|---|---|---|
-| Race-start countdown ("Race Timer") | 130824 Key 117 | `NauticNet.Compute.RaceTimerBroadcaster` | `RACE_TIMER_BROADCAST_ENABLED` | OFF |
-| Next waypoint (bearing/distance) | 129284 + 129285 | `NauticNet.Compute.WaypointBroadcaster` | `WAYPOINT_BROADCAST_ENABLED` | OFF |
+| Broadcast | PGN(s) | Module |
+|---|---|---|
+| Race-start countdown ("Race Timer") | 130824 Key 117 | `NauticNet.Compute.RaceTimerBroadcaster` |
+| Next waypoint (bearing/distance) | 129284 + 129285 | `NauticNet.Compute.WaypointBroadcaster` |
 
-Both ship OFF in production. They are PROPRIETARY/best-effort wire formats whose
-acceptance by a real B&G/Zeus display is unverified — that is exactly what this run
-settles. **The on-boat run is the OWNER's**; this doc makes it turn-key.
+Both broadcast ALWAYS — whenever the device holds an active race assignment — with no
+gate. They are PROPRIETARY/best-effort wire formats whose acceptance by a real B&G/Zeus
+display is unverified; this run confirms it on the wire + the display. **The on-boat run
+is the OWNER's**; this doc makes it turn-key.
 
 > **The actual numbers in this doc are quoted from the real code** (`pgn_encode.ex`,
 > the broadcasters, `config/target.exs`) as of this branch. If you change the code, the
@@ -23,26 +24,10 @@ settles. **The on-boat run is the OWNER's**; this doc makes it turn-key.
 1. **Deployed backend** running the race-timeline engine (SailRoute) so a scheduled race
    becomes the device's active assignment. The assignment MUST carry the gun time and
    start window (see [§6 Backend cross-reference](#6-backend-cross-reference)).
-2. **This firmware flashed with the flags ON.** Add these to `.envrc` (no code edit
-   required — `config/config.exs` reads them as truthy `1/true/yes/on`, case-insensitive,
-   trimmed), then do the normal burn:
-
-   ```sh
-   # in .envrc, alongside the existing exports (PRODUCT, API_ENDPOINT, …):
-   export RACE_TIMER_BROADCAST_ENABLED=true
-   export WAYPOINT_BROADCAST_ENABLED=true
-   ```
-
-   Then `direnv allow` (or re-source) and burn as usual (`mix firmware` / `mix
-   firmware.signed` / upload). With the vars UNSET the defaults stay `false`, so this is
-   a validation-only image; a normal production burn omits the vars.
-
-   Verify the flags compiled in (host or device `iex`):
-
-   ```elixir
-   Application.get_env(:nautic_net_device, :race_timer_broadcast_enabled)  #=> true
-   Application.get_env(:nautic_net_device, :waypoint_broadcast_enabled)    #=> true
-   ```
+2. **This firmware flashed.** Both broadcasters are ALWAYS ON, so a normal burn (`mix
+   firmware` / `mix firmware.signed` / upload) is all that's needed — no env vars, no code
+   edit. They sit idle until the device holds an active race assignment, then broadcast at
+   ~1 Hz.
 
 3. **The device on the boat's N2K bus** alongside a **B&G/Zeus** (or **Triton2**) MFD/
    display.
@@ -207,7 +192,7 @@ Fill in per item. "Adjustment landed in" lists the exact code site for any chang
 
 | # | Item | Expected | Observed | Pass/Fail | Adjustment made | Adjustment landed in (file · function) |
 |---|------|----------|----------|-----------|-----------------|-----------------------------------------|
-| 1 | 130824 present ~1 Hz from this device | 1 frame/s, our source addr | | | | broadcaster flag — `config/config.exs` (`RACE_TIMER_BROADCAST_ENABLED`) |
+| 1 | 130824 present ~1 Hz from this device | 1 frame/s, our source addr | | | | `RaceTimerBroadcaster` (always on; needs an active race assignment) |
 | 2 | 130824 header bytes | `7D 99` | | | | `pgn_encode.ex` · `manufacturer_word/1` |
 | 3 | 130824 descriptor | `75 40` (Key 117, Len 4) | | | | `pgn_encode.ex` · `race_timer/1` |
 | 4 | 130824 value = gun−now (ms) | uint32 LE, ↓ ~1000/s | | | | `pgn_encode.ex` · `race_timer/1` |
@@ -216,7 +201,7 @@ Fill in per item. "Adjustment landed in" lists the exact code site for any chang
 | 7 | Through-gun representation (Q-B) | elapsed magnitude | | | | `pgn_encode.ex` · `through_gun_ms/1` |
 | 8 | Companion start keys needed? (Q-C) | timer renders alone | | | | `pgn_encode.ex` · `race_timer/1` (+ `serialize_with_entry/3`) |
 | 9 | NAME/mfr filtering? (Q-D) | not filtered (mfr 999 ok) | | | | `config/target.exs` · `:nmea, NMEA.VirtualDevice` |
-| 10 | 129284 present ~1 Hz | 1 frame/s w/ GPS fix | | | | broadcaster flag — `config/config.exs` (`WAYPOINT_BROADCAST_ENABLED`) |
+| 10 | 129284 present ~1 Hz | 1 frame/s w/ GPS fix | | | | `WaypointBroadcaster` (always on; needs active mark + GPS fix) |
 | 11 | 129284 distance/bearing/dest | matches next mark | | | | `pgn_encode.ex` · `navigation_data_129284/1` |
 | 12 | 129285 WP name/ID | mark code, WP# matches | | | | `pgn_encode.ex` · `route_wp_129285/1` |
 | 13 | B&G data box BTW/DTW | shows + updates | | | | (display-side) |
@@ -227,7 +212,6 @@ Fill in per item. "Adjustment landed in" lists the exact code site for any chang
 - Manufacturer header / reserved bits → `lib/nautic_net/compute/pgn_encode.ex` · `manufacturer_word/1`
 - Companion 130824 keys → `lib/nautic_net/compute/pgn_encode.ex` · `race_timer/1` (+ `serialize_with_entry/3`), fed from `RaceTimerBroadcaster`
 - Device NAME / manufacturer → `config/target.exs` (`:nmea, NMEA.VirtualDevice`)
-- Broadcaster flags → `config/config.exs` (`RACE_TIMER_BROADCAST_ENABLED` / `WAYPOINT_BROADCAST_ENABLED`)
 
 ---
 

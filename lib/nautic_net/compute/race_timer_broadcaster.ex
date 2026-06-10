@@ -22,12 +22,11 @@ defmodule NauticNet.Compute.RaceTimerBroadcaster do
   the assignment is cancelled, the wall clock is pre-GPS-sync (unreliable), or the
   feature is DISABLED. A stale/garbage countdown never reaches the bus.
 
-  ## Validation gate
+  ## Broadcasting
 
-  PGN 130824 is proprietary; like the existing 130824 encoder it ships behind a config
-  flag, `:race_timer_broadcast_enabled` (default OFF), flipped per-device after the
-  on-hardware sniff. Disabled, every tick is a no-op. Host tests drive it ENABLED via
-  the `:enabled` opt.
+  PGN 130824 is a reverse-engineered B&G proprietary message; the broadcaster is ALWAYS
+  ON and broadcasts whenever the device holds a race assignment with a gun time. (Host
+  tests can still suppress it by passing `enabled: false`.)
 
   ## Start sequence
 
@@ -99,7 +98,7 @@ defmodule NauticNet.Compute.RaceTimerBroadcaster do
 
     state = %{
       commands: opts[:commands] || Commands,
-      enabled: Keyword.get(opts, :enabled, enabled_default()),
+      enabled: Keyword.get(opts, :enabled, true),
       transmit: opts[:transmit_fn] || (&default_transmit/3),
       now_fn: opts[:now_fn] || (&DateTime.utc_now/0),
       tick_ms: tick_ms,
@@ -207,8 +206,4 @@ defmodule NauticNet.Compute.RaceTimerBroadcaster do
     end
   end
 
-  # Compile-time default for the validation gate; OFF until on-hardware validation.
-  defp enabled_default do
-    Application.get_env(:nautic_net_device, :race_timer_broadcast_enabled, false) == true
-  end
 end

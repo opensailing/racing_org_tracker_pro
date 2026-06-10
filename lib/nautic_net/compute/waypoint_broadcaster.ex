@@ -46,14 +46,14 @@ defmodule NauticNet.Compute.WaypointBroadcaster do
   is no `active_mark_code`, the active mark has no position on the device, there is no
   own-position fix, or the feature is DISABLED.
 
-  ## Validation gate
+  ## Broadcasting
 
-  Like the race-timer broadcaster, it ships behind a config flag,
-  `:waypoint_broadcast_enabled` (default OFF). 129284/129285 are STANDARD navigation
-  PGNs, but whether a given Navico/Zeus plotter ADOPTS an externally-sourced active
-  waypoint onto the chart (vs only rendering the data-box numbers) is an on-hardware
-  validation item; the flag stays off until that sniff. Disabled, every tick is a
-  no-op. Host tests drive it ENABLED via the `:enabled` opt.
+  The broadcaster is ALWAYS ON and broadcasts whenever the device holds a race
+  assignment whose active mark has a position and a recent GPS fix is available.
+  129284/129285 are STANDARD navigation PGNs; whether a given Navico/Zeus plotter
+  ADOPTS an externally-sourced active waypoint onto the chart (vs only rendering the
+  data-box numbers) is plotter-dependent. (Host tests can suppress it via
+  `enabled: false`.)
 
   ## NMEA-0183 fallback
 
@@ -111,7 +111,7 @@ defmodule NauticNet.Compute.WaypointBroadcaster do
 
     state = %{
       commands: opts[:commands] || Commands,
-      enabled: Keyword.get(opts, :enabled, enabled_default()),
+      enabled: Keyword.get(opts, :enabled, true),
       transmit: opts[:transmit_fn] || (&default_transmit/3),
       # Source of own-position as `{lat, lon}` or nil. Defaults to the last telemetry fix.
       position_fn: position_fn,
@@ -283,9 +283,4 @@ defmodule NauticNet.Compute.WaypointBroadcaster do
   end
 
   defp monotonic_ms, do: System.monotonic_time(:millisecond)
-
-  # Compile-time default for the validation gate; OFF until on-hardware validation.
-  defp enabled_default do
-    Application.get_env(:nautic_net_device, :waypoint_broadcast_enabled, false) == true
-  end
 end

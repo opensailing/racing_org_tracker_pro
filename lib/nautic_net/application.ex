@@ -202,29 +202,19 @@ defmodule NauticNet.Application do
      device_id: NauticNet.boat_identifier()}
   end
 
-  # Broadcasts the B&G race-start countdown (PGN 130824 Key 117) at ~1 Hz when the
-  # device holds a race assignment with a gun time. It is a PROPRIETARY message
-  # gated behind `:race_timer_broadcast_enabled` (default OFF) until on-hardware
-  # validation, mirroring the existing "130824 needs on-hardware validation" posture;
-  # flip the flag per-device after the sniff. Cheap + a no-op while disabled or
-  # unassigned.
+  # Broadcasts the B&G race-start countdown (PGN 130824 Key 117) at ~1 Hz whenever the
+  # device holds a race assignment with a gun time (a reverse-engineered proprietary
+  # message). Always on; cheap + a no-op while unassigned.
   defp race_timer_broadcaster_child do
-    {NauticNet.Compute.RaceTimerBroadcaster,
-     name: NauticNet.Compute.RaceTimerBroadcaster,
-     enabled: Application.get_env(:nautic_net_device, :race_timer_broadcast_enabled, false) == true}
+    {NauticNet.Compute.RaceTimerBroadcaster, name: NauticNet.Compute.RaceTimerBroadcaster}
   end
 
   # Broadcasts the NEXT WAYPOINT to steer to (PGN 129284 Navigation Data + PGN 129285
-  # Route/WP Information) at ~1 Hz when the device holds a race assignment whose active
-  # mark carries a position AND a recent GPS fix is available. These are STANDARD nav
-  # PGNs; the gate `:waypoint_broadcast_enabled` (default OFF) holds it until the
-  # on-hardware sniff confirms a Navico/Zeus plotter ADOPTS the externally-sourced
-  # active waypoint onto the chart. Cheap + a no-op while disabled, unassigned, or
-  # before a GPS fix.
+  # Route/WP Information) at ~1 Hz whenever the device holds a race assignment whose
+  # active mark carries a position AND a recent GPS fix is available (STANDARD nav PGNs).
+  # Always on; cheap + a no-op while unassigned or before a GPS fix.
   defp waypoint_broadcaster_child do
-    {NauticNet.Compute.WaypointBroadcaster,
-     name: NauticNet.Compute.WaypointBroadcaster,
-     enabled: Application.get_env(:nautic_net_device, :waypoint_broadcast_enabled, false) == true}
+    {NauticNet.Compute.WaypointBroadcaster, name: NauticNet.Compute.WaypointBroadcaster}
   end
 
   defp product do
