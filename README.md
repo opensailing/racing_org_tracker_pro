@@ -1,4 +1,4 @@
-# NauticNet device
+# RacingOrg tracker
 
 This is the parent/main repository for the "keelboat" tracker (aka "logger"). This is designed to run on a Raspberry Pi 3 b+ with SixFab LTE and a Pican-M hats.
 
@@ -34,10 +34,10 @@ mix firmware && mix upload nerves.local
 
 ## Local development
 
-If you need to work on the `nautic_net_*` libraries locally, you can specify `NAUTIC_NET_DEPS_PATH='..'` and set up the
+If you need to work on the `racing_org_*` libraries locally, you can specify `RACING_ORG_DEPS_PATH='..'` and set up the
 dependencies as sibling directories to this repo.
 
-    nautic_net_device/         <-- you are here
-    nautic_net_protobuf/
-    nautic_net_system_rpi3/
+    racing_org_tracker/         <-- you are here
+    racing_org_protobuf/
+    racing_org_system_rpi3/
     nmea/

@@ -4,7 +4,7 @@
 
 import Config
 
-alias NauticNet.NMEA2000.J1939
+alias RacingOrg.NMEA2000.J1939
 
 config :logger, level: :debug, backends: [:console]
 
@@ -26,6 +26,6 @@ config :nmea, NMEA.VirtualDevice,
   load_equivelency_number: 0,
   certification_level: :level_a
 
-config :nautic_net_device, NauticNet.Serial,
-  driver: NauticNet.Serial.Fake.Driver,
-  handlers: [NauticNet.PacketHandler.SetTimeFromGPS]
+config :racing_org_tracker, RacingOrg.Tracker.Serial,
+  driver: RacingOrg.Tracker.Serial.Fake.Driver,
+  handlers: [RacingOrg.Tracker.PacketHandler.SetTimeFromGPS]

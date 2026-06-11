@@ -1,16 +1,16 @@
-defmodule NauticNet.Device.MixProject do
+defmodule RacingOrg.Tracker.Device.MixProject do
   use Mix.Project
 
-  @app :nautic_net_device
+  @app :racing_org_tracker
   @version "0.3.5"
-  @all_device_targets [:nautic_net_rpi3]
+  @all_device_targets [:racing_org_rpi3]
 
   def project do
     [
       app: @app,
       # NervesHub product name. Nerves bakes `:name || :app` into the firmware's
       # `meta-product`, and NervesHub matches uploads against a Product of that exact
-      # name. The OTP app stays `:nautic_net_device`; only the firmware product label
+      # name. The OTP app stays `:racing_org_tracker`; only the firmware product label
       # changes. Must match the NervesHub Product name exactly.
       name: "racing-org",
       version: @version,
@@ -31,7 +31,7 @@ defmodule NauticNet.Device.MixProject do
   # Run "mix help compile.app" to learn about applications.
   def application do
     [
-      mod: {NauticNet.Application, []},
+      mod: {RacingOrg.Tracker.Application, []},
       extra_applications: [:logger, :runtime_tools, :inets, :crypto]
     ]
   end
@@ -74,7 +74,7 @@ defmodule NauticNet.Device.MixProject do
       {:expty, "~> 0.2.1", targets: @all_device_targets},
 
       # Slipstream powers the device's outbound, CGNAT-friendly WSS command
-      # channel to SailRoute (NauticNet.SecureTransport.ChannelClient). It is
+      # channel to RacingOrg (RacingOrg.Tracker.SecureTransport.ChannelClient). It is
       # already resolved transitively via :nerves_hub_link (1.2.2 in mix.lock);
       # depend on it explicitly (and on all targets, so host tests can drive the
       # channel logic) and pin it to the resolved minor.
@@ -106,63 +106,63 @@ defmodule NauticNet.Device.MixProject do
       # builds — which use the Fake CAN driver — don't try to compile the NIF.
       # :nmea references NgCan only at runtime, so host compilation is unaffected.
       {:ng_can, github: "rosepointnav/ng_can", override: true, targets: @all_device_targets}
-    ] ++ nautic_net_deps()
+    ] ++ racing_org_deps()
   end
 
-  defp nautic_net_deps do
-    if deps_path = System.get_env("NAUTIC_NET_DEPS_PATH") do
+  defp racing_org_deps do
+    if deps_path = System.get_env("RACING_ORG_DEPS_PATH") do
       # Local development
       [
-        {:nautic_net_nmea2000, path: Path.join(deps_path, "nautic_net_nmea2000")},
-        {:nautic_net_protobuf, path: Path.join(deps_path, "nautic_net_protobuf")},
-        {:nautic_net_system_rpi3,
-         path: Path.join(deps_path, "nautic_net_system_rpi3"), runtime: false, targets: :nautic_net_rpi3},
+        {:racing_org_nmea2000, path: Path.join(deps_path, "racing_org_nmea2000")},
+        {:racing_org_protobuf, path: Path.join(deps_path, "racing_org_protobuf")},
+        {:racing_org_system_rpi3,
+         path: Path.join(deps_path, "racing_org_system_rpi3"), runtime: false, targets: :racing_org_rpi3},
         {:nmea, path: Path.join(deps_path, "nmea")}
       ]
     else
       # Pull from GitHub
       [
-        {:nautic_net_nmea2000, git: "git@github.com:opensailing/nautic_net_nmea2000.git"},
-        nautic_net_protobuf_dep(),
-        nautic_net_system_dep(),
-        nautic_net_nmea_dep()
+        {:racing_org_nmea2000, git: "git@github.com:opensailing/racing_org_nmea2000.git"},
+        racing_org_protobuf_dep(),
+        racing_org_system_dep(),
+        racing_org_nmea_dep()
       ]
     end
   end
 
-  # Point at a local nautic_net_protobuf checkout with NAUTIC_NET_PROTOBUF_PATH
+  # Point at a local racing_org_protobuf checkout with RACING_ORG_PROTOBUF_PATH
   # while developing the wire contract; otherwise pull main from GitHub.
-  defp nautic_net_protobuf_dep do
-    if path = System.get_env("NAUTIC_NET_PROTOBUF_PATH") do
-      {:nautic_net_protobuf, path: path}
+  defp racing_org_protobuf_dep do
+    if path = System.get_env("RACING_ORG_PROTOBUF_PATH") do
+      {:racing_org_protobuf, path: path}
     else
-      {:nautic_net_protobuf,
-       git: "git@github.com:opensailing/nautic_net_protobuf.git", branch: "main"}
+      {:racing_org_protobuf,
+       git: "git@github.com:opensailing/racing_org_protobuf.git", branch: "main"}
     end
   end
 
   # The Nerves system fork is only fetched when building target firmware. Point
-  # at a local checkout with NAUTIC_NET_SYSTEM_PATH for system development;
+  # at a local checkout with RACING_ORG_SYSTEM_PATH for system development;
   # otherwise pull the OTP 28 branch from GitHub.
-  defp nautic_net_system_dep do
-    base = [runtime: false, targets: :nautic_net_rpi3]
+  defp racing_org_system_dep do
+    base = [runtime: false, targets: :racing_org_rpi3]
 
-    if path = System.get_env("NAUTIC_NET_SYSTEM_PATH") do
+    if path = System.get_env("RACING_ORG_SYSTEM_PATH") do
       # Local system development: build the local source from scratch.
-      {:nautic_net_system_rpi3, [path: path, nerves: [compile: true]] ++ base}
+      {:racing_org_system_rpi3, [path: path, nerves: [compile: true]] ++ base}
     else
       # Normal build: download the PREBUILT artifact from the fork's GitHub
       # releases (artifact_sites {:github_releases, ...} -> the v<version> release).
       # No local Buildroot build and no case-sensitive volume needed.
-      {:nautic_net_system_rpi3,
-       [git: "git@github.com:opensailing/nautic_net_system_rpi3.git", branch: "otp28-upgrade"] ++ base}
+      {:racing_org_system_rpi3,
+       [git: "git@github.com:opensailing/racing_org_system_rpi3.git", branch: "otp28-upgrade"] ++ base}
     end
   end
 
-  # Point at a local nmea checkout with NAUTIC_NET_NMEA_PATH while developing the
+  # Point at a local nmea checkout with RACING_ORG_NMEA_PATH while developing the
   # library; otherwise pull from GitHub.
-  defp nautic_net_nmea_dep do
-    if path = System.get_env("NAUTIC_NET_NMEA_PATH") do
+  defp racing_org_nmea_dep do
+    if path = System.get_env("RACING_ORG_NMEA_PATH") do
       {:nmea, path: path}
     else
       {:nmea, git: "git@github.com:opensailing/nmea", branch: "ng-can-optional"}

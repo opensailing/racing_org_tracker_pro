@@ -1,5 +1,5 @@
 {
-  "_about": "Language-neutral Known-Answer-Test vectors for SailRoute.SecureTransport. All values are lowercase hex. Reusable by the device firmware repo (OTP 28) to cross-check its implementation. Sourced verbatim from the cited RFCs and empirically reproduced via Erlang/OTP :crypto on OTP 27.",
+  "_about": "Language-neutral Known-Answer-Test vectors for RacingOrg.SecureTransport. All values are lowercase hex. Reusable by the device firmware repo (OTP 28) to cross-check its implementation. Sourced verbatim from the cited RFCs and empirically reproduced via Erlang/OTP :crypto on OTP 27.",
   "_spec": "docs/SECURE_TRANSPORT.md",
   "hkdf_sha256": {
     "_source": "RFC 5869 Appendix A.1, A.2, A.3",

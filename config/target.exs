@@ -5,13 +5,13 @@ import Config
 
 case System.get_env("CAN_DRIVER") do
   "canusb" ->
-    config :nautic_net_device, NauticNet.CAN,
-      driver: {NauticNet.CAN.CANUSB.Driver, start_logging?: true},
+    config :racing_org_tracker, RacingOrg.Tracker.CAN,
+      driver: {RacingOrg.Tracker.CAN.CANUSB.Driver, start_logging?: true},
       handlers: [
-        NauticNet.PacketHandler.DiscoverDevices,
-        NauticNet.PacketHandler.Inspect,
-        NauticNet.PacketHandler.SetTimeFromGPS,
-        NauticNet.PacketHandler.EmitTelemetry
+        RacingOrg.Tracker.PacketHandler.DiscoverDevices,
+        RacingOrg.Tracker.PacketHandler.Inspect,
+        RacingOrg.Tracker.PacketHandler.SetTimeFromGPS,
+        RacingOrg.Tracker.PacketHandler.EmitTelemetry
       ]
 
   "pican-m" ->
@@ -34,20 +34,20 @@ case System.get_env("CAN_DRIVER") do
       certification_level: :level_a
 
   "fake" ->
-    config :nautic_net_device, NauticNet.CAN, driver: NauticNet.CAN.Fake.Driver
+    config :racing_org_tracker, RacingOrg.Tracker.CAN, driver: RacingOrg.Tracker.CAN.Fake.Driver
 
   "disabled" ->
-    config :nautic_net_device, NauticNet.CAN, false
+    config :racing_org_tracker, RacingOrg.Tracker.CAN, false
 
   _else ->
     raise "the CAN_DRIVER environment variable must be one of: canusb, pican-m, disabled"
 end
 
-config :nautic_net_device, NauticNet.Serial,
-  driver: NauticNet.Serial.SixFab.Driver,
-  handlers: [NauticNet.PacketHandler.SetTimeFromGPS]
+config :racing_org_tracker, RacingOrg.Tracker.Serial,
+  driver: RacingOrg.Tracker.Serial.SixFab.Driver,
+  handlers: [RacingOrg.Tracker.PacketHandler.SetTimeFromGPS]
 
-config :nautic_net_device,
+config :racing_org_tracker,
   data_set_directory: "/data/datasets",
   assignment_directory: "/data/assignment",
   race_archive_directory: "/data/races",
@@ -150,14 +150,14 @@ config :nerves_ssh, authorized_keys: authorized_keys
 # Wi-Fi is configured ONLY when credentials were baked in at build time. On a
 # cellular-only deployment build (no creds), `wlan0` is left UNCONFIGURED so
 # wpa_supplicant never runs and the radio never scans (scanning is the bulk of the
-# Wi-Fi power draw) — and `:wifi_enabled` is set false so `NauticNet.WiFiPower` powers
+# Wi-Fi power draw) — and `:wifi_enabled` is set false so `RacingOrg.Tracker.WiFiPower` powers
 # the radio down at boot to save battery. With creds present (bench/dev build), Wi-Fi
 # is a normal client and provides LAN/SSH access; cellular is still used in the field.
 wifi_ssid = System.get_env("VINTAGE_NET_WIFI_SSID")
 wifi_psk = System.get_env("VINTAGE_NET_WIFI_PSK")
 wifi_enabled? = is_binary(wifi_ssid) and wifi_ssid != "" and is_binary(wifi_psk) and wifi_psk != ""
 
-config :nautic_net_device, :wifi_enabled, wifi_enabled?
+config :racing_org_tracker, :wifi_enabled, wifi_enabled?
 
 wlan0_config =
   if wifi_enabled? do

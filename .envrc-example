@@ -3,7 +3,7 @@ export NERVES_DL_DIR='/Volumes/Nerves/dl'
 export NERVES_ARTIFACTS_DIR='/Volumes/Nerves/artifacts'
 
 # Uncomment for local development of OpenSailing dependencies (see mix.exs)
-# export NAUTIC_NET_DEPS_PATH='..'
+# export RACING_ORG_DEPS_PATH='..'
 
 # Wi-Fi
 export VINTAGE_NET_WIFI_SSID='My Home SSID'
@@ -46,7 +46,7 @@ case $REPLY in
     ;;
   3)
     echo 'Configuring rpi3 environment'
-    export MIX_TARGET='nautic_net_rpi3'
+    export MIX_TARGET='racing_org_rpi3'
     export CAN_DRIVER='pican-m'
     ;;
 esac
@@ -58,9 +58,9 @@ read
 
 case $REPLY in 
   w)
-    echo 'Configuring web server (SailRoute backend)'
-    export API_ENDPOINT="https://sailroute-backend.fly.dev"
-    export UDP_ENDPOINT="sailroute-backend.fly.dev:4001"
+    echo 'Configuring web server (RacingOrg backend)'
+    export API_ENDPOINT="https://racing.org"
+    export UDP_ENDPOINT="racing.org:4001"
     ;;
   *)
     echo 'Configuring localhost server'

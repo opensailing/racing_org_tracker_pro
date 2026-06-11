@@ -1,7 +1,7 @@
 # Secure-Transport Reflash + Enforcement Runbook (one device, end to end)
 
 Operator runbook for the secure-transport rollout of a SINGLE Nautic Net device
-against the SailRoute server, covering: server prep, device provisioning + reflash,
+against the RacingOrg server, covering: server prep, device provisioning + reflash,
 and verification.
 
 > The device firmware is now ALWAYS secure-only for UDP telemetry: each DataSet is
@@ -13,12 +13,12 @@ and verification.
 > the device.
 
 This is the operational counterpart to the device wiring landed in P9-job-6
-(`NauticNet.SecureTransport.SessionHolder` / `ChannelClient` / `BootProvisioner` in
+(`RacingOrg.Tracker.SecureTransport.SessionHolder` / `ChannelClient` / `BootProvisioner` in
 the supervision tree, and the post-race `BulkUploader` trigger from
-`NauticNet.Race.Archive`).
+`RacingOrg.Tracker.Race.Archive`).
 
-> Terminology: "device" = the Nerves firmware in `nautic_net_device`; "server" =
-> SailRoute (`backend`, deployed on Fly). All crypto is Ed25519 + ChaCha20-Poly1305;
+> Terminology: "device" = the Nerves firmware in `racing_org_tracker`; "server" =
+> RacingOrg (`backend`, deployed on Fly). All crypto is Ed25519 + ChaCha20-Poly1305;
 > there is no PKI — the device PINS the server's public key and the server records
 > the device's self-registered public key (a `DeviceKey`).
 >
@@ -31,7 +31,7 @@ the supervision tree, and the post-race `BulkUploader` trigger from
 
 ## 0. Invariants and ordering (read first)
 
-- **Single-machine UDP invariant.** SailRoute's UDP telemetry listener binds ONE
+- **Single-machine UDP invariant.** RacingOrg's UDP telemetry listener binds ONE
   IPv4 socket on the fly-global-services address and command replies egress from
   that same socket. Telemetry ingest, the per-device enforcement gate, and replies
   are all on that single machine. Do not assume multi-machine UDP fan-out.
@@ -47,12 +47,12 @@ the supervision tree, and the post-race `BulkUploader` trigger from
 
 ---
 
-## 1. Server prep (Fly / SailRoute)
+## 1. Server prep (Fly / RacingOrg)
 
 ### 1.1 Ensure the server identity seed is set (prod REQUIRES it)
 
 The server signs its handshake HELLO with its Ed25519 identity seed. In prod the seed
-MUST be configured (`SailRoute.SecureTransport.ServerIdentity.private_seed/0` raises
+MUST be configured (`RacingOrg.SecureTransport.ServerIdentity.private_seed/0` raises
 otherwise); dev/test falls back to a fixed non-secret seed.
 
 ```sh
@@ -68,7 +68,7 @@ from the seed. Derive it ON THE SERVER so it is exactly what the server will sig
 
 ```sh
 fly ssh console -a <your-app> -C \
-  "/app/bin/sail_route eval 'IO.puts(Base.encode16(SailRoute.SecureTransport.ServerIdentity.public_key(), case: :lower))'"
+  "/app/bin/racing_org eval 'IO.puts(Base.encode16(RacingOrg.SecureTransport.ServerIdentity.public_key(), case: :lower))'"
 ```
 
 This prints a 64-char lowercase hex string — the value you set as
@@ -76,7 +76,7 @@ This prints a 64-char lowercase hex string — the value you set as
 only server-trust anchor; treat a change to it as a firmware re-pin.
 
 > Equivalent low-level form (same result):
-> `Base.encode16(SailRoute.SecureTransport.Primitives.ed25519_public_from_secret(SailRoute.SecureTransport.ServerIdentity.private_seed()), case: :lower)`
+> `Base.encode16(RacingOrg.SecureTransport.Primitives.ed25519_public_from_secret(RacingOrg.SecureTransport.ServerIdentity.private_seed()), case: :lower)`
 
 ### 1.3 Create an admin account (for the post-registration association)
 
@@ -85,7 +85,7 @@ associates it to an account by email (§3.6). Bootstrap an admin in the release:
 
 ```sh
 fly ssh console -a <your-app> -C \
-  "/app/bin/sail_route eval 'SailRoute.Release.create_admin(\"ops@example.com\", \"a sufficiently long password\")'"
+  "/app/bin/racing_org eval 'RacingOrg.Release.create_admin(\"ops@example.com\", \"a sufficiently long password\")'"
 ```
 
 Idempotent: re-running with the same email updates the password and re-confirms.
@@ -139,8 +139,8 @@ Provisioning values:
 Export the environment, then build + flash, all in the same shell:
 
 ```sh
-export API_ENDPOINT="https://sailroute-backend.fly.dev"      # your server base
-export UDP_ENDPOINT="sailroute-backend.fly.dev:4001"
+export API_ENDPOINT="https://racing.org"      # your server base
+export UDP_ENDPOINT="racing.org:4001"
 export PRODUCT="logger"
 export SECURE_TRANSPORT_SERVER_PUBLIC_KEY="<64-char hex from §1.2>"  # the SINGLE enable: setting it turns on register + channel + bulk
 
@@ -159,7 +159,7 @@ MIX_TARGET=<target> mix burn                # or: fwup / NervesHub OTA push
    first boot and persists the 32-byte seed `0600` at `/data/secure_transport/device_ed25519.key`
    (reloaded unchanged on every later boot).
 2. `BootProvisioner` self-registers the device: `POST /api/devices/register` with the
-   PoP signature over `("SailRoute-DeviceRegister-v1", public_key, timestamp)` — no
+   PoP signature over `("RacingOrg-TrackerRegister-v1", public_key, timestamp)` — no
    claim token, no server nonce. On success it persists a register marker
    (`/data/secure_transport/register_marker.json`). The device is recorded UNASSIGNED;
    an admin associates it to an account in §3.6. A rejected registration is logged, NOT
@@ -183,7 +183,7 @@ MIX_TARGET=<target> mix burn                # or: fwup / NervesHub OTA push
 ```sh
 # Find the device key by the device's identity fingerprint (see 3.2 for the fp).
 fly ssh console -a <your-app> -C \
-  "/app/bin/sail_route eval 'IO.inspect(SailRoute.Devices.get_device_key_by_fingerprint(\"<fingerprint-hex>\"))'"
+  "/app/bin/racing_org eval 'IO.inspect(RacingOrg.Devices.get_device_key_by_fingerprint(\"<fingerprint-hex>\"))'"
 ```
 
 A non-nil `DeviceKey` with the expected `device_id` confirms the registration landed.
@@ -195,7 +195,7 @@ On the device console (`/data` identity), the fingerprint is lowercase hex
 `SHA-256(public_key)`:
 
 ```elixir
-{:ok, id} = NauticNet.SecureTransport.KeyStore.load()
+{:ok, id} = RacingOrg.Tracker.SecureTransport.KeyStore.load()
 id.fingerprint
 ```
 
@@ -204,7 +204,7 @@ value to use in §3.1 and §4.
 
 ### 3.3 Confirm the channel session is live
 
-- Device side: `NauticNet.SecureTransport.SessionHolder.live?()` returns `true`, and
+- Device side: `RacingOrg.Tracker.SecureTransport.SessionHolder.live?()` returns `true`, and
   device logs show `"[ChannelClient] secure session established"`.
 - Server side: the session is in the `SessionStore` (routed by `session_id`), and the
   device log line above only prints after the server's `handshake_ok`.
@@ -254,13 +254,13 @@ Do NOT proceed until §3.3 + §3.4 are green for this device.
 
 > **SERVER-ENFORCEMENT FINDING (verified read-only for this runbook):**
 > The server's per-device `requires_secure_transport` column IS actually ENFORCED.
-> The live UDP listener (`SailRoute.NauticNet.UDPServer.process_datagram/5`) calls
+> The live UDP listener (`RacingOrg.UDPServer.process_datagram/5`) calls
 > `SecureUDPIngest.handle_datagram/3` for EVERY datagram; on the legacy plaintext
 > branch it resolves the attributable `%Device{}` and
 > `plaintext_rejected?/1` rejects (`{:error, {:auth_error, :plaintext_rejected}}`,
 > not ingested) when `match?(%Device{requires_secure_transport: true}, device)` — i.e.
 > the per-device DB column is read and acted on. Covered by
-> `backend/test/sail_route/nautic_net/secure_udp_coexistence_test.exs`
+> `backend/test/racing_org/racing_org/secure_udp_coexistence_test.exs`
 > ("plaintext from a secure-capable device is REJECTED").
 
 ### Step A — Pre-checks
@@ -273,11 +273,11 @@ Flip the per-device column so the server rejects any (now-impossible) plaintext 
 
 ```sh
 fly ssh console -a <your-app> -C \
-  "/app/bin/sail_route eval '
+  "/app/bin/racing_org eval '
     fp = \"<fingerprint-hex>\"
-    %{device_id: id} = SailRoute.Devices.get_device_key_by_fingerprint(fp)
-    dev = SailRoute.Devices.get_device(id)
-    {:ok, _} = SailRoute.Devices.update_device(dev, %{requires_secure_transport: true})
+    %{device_id: id} = RacingOrg.Devices.get_device_key_by_fingerprint(fp)
+    dev = RacingOrg.Devices.get_device(id)
+    {:ok, _} = RacingOrg.Devices.update_device(dev, %{requires_secure_transport: true})
   '"
 ```
 
@@ -287,7 +287,7 @@ sends AEAD, so telemetry keeps flowing unaffected.
 
 ### Rollback
 Set the device's `requires_secure_transport` back to `false`
-(`SailRoute.Devices.update_device(dev, %{requires_secure_transport: false})`). The
+(`RacingOrg.Devices.update_device(dev, %{requires_secure_transport: false})`). The
 server again accepts plaintext from it — though this device never sends any. There is
 no device-side rollback step.
 
@@ -305,7 +305,7 @@ The per-device server flip above (§4) is one device. One global SERVER flag rem
 do it ONLY after the WHOLE fleet is reflashed + verified:
 
 - **`require_authenticated_device` (UDP telemetry kill switch).**
-  `config :sail_route, :device_auth, require_authenticated_device: true`. When ON, the
+  `config :racing_org, :device_auth, require_authenticated_device: true`. When ON, the
   server rejects ALL plaintext telemetry from ANY device (even unknown), regardless of
   the per-device column — same `:plaintext_rejected` path
   (`SecureUDPIngest.plaintext_rejected?/1`). This bricks any not-yet-reflashed device,

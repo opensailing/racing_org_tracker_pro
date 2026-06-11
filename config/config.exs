@@ -11,7 +11,7 @@ Application.start(:nerves_bootstrap)
 {git_commit, 0} = System.cmd("git", ["rev-parse", "HEAD"])
 git_commit = String.trim(git_commit)
 
-config :nautic_net_device,
+config :racing_org_tracker,
   target: Mix.target(),
   api_endpoint: System.fetch_env!("API_ENDPOINT"),
   udp_endpoint: System.fetch_env!("UDP_ENDPOINT"),
@@ -48,14 +48,14 @@ config :nautic_net_device,
 #       needs (no out-of-band claim token / nonce anymore — registration is tokenless
 #       and an admin associates the device to an account after it registers). It is
 #       the SINGLE enable for the secure-transport children.
-config :nautic_net_device, NauticNet.SecureTransport.ServerIdentity,
+config :racing_org_tracker, RacingOrg.Tracker.SecureTransport.ServerIdentity,
   public_key: System.get_env("SECURE_TRANSPORT_SERVER_PUBLIC_KEY")
 
 # Data upload filter modes:
 # :permissive - Allow data to be uploaded by any sensor for a data type
 # :strict - Only allow data to be uploaded if a sensor is selected -- via a filter -- for the data type
 # FUTURETODO: This should probably move to a runtime configuration value
-config :nautic_net_device, :data_filtering, filter_mode: :permissive
+config :racing_org_tracker, :data_filtering, filter_mode: :permissive
 
 # Customize non-Elixir parts of the firmware. See
 # https://hexdocs.pm/nerves/advanced-configuration.html for details.
@@ -81,7 +81,7 @@ config :tesla, adapter: Tesla.Adapter.Mint
 
 # Tesla 1.20 soft-deprecates the `use Tesla` builder macro (still fully
 # supported) in favor of runtime configuration. We continue to use the builder
-# in NauticNet.WebClients.HTTPClient, so silence the per-compile warning.
+# in RacingOrg.Tracker.WebClients.HTTPClient, so silence the per-compile warning.
 config :tesla, disable_deprecated_builder_warning: true
 
 if Mix.target() == :host or Mix.target() == :"" do

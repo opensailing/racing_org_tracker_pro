@@ -5,15 +5,15 @@ import Config
 
 # Don't start these servers for testing; we will supervise them manually
 # in the test cases
-config :nautic_net_device, NauticNet.CAN, false
-config :nautic_net_device, NauticNet.Discovery, false
-config :nautic_net_device, NauticNet.Serial, false
+config :racing_org_tracker, RacingOrg.Tracker.CAN, false
+config :racing_org_tracker, RacingOrg.Tracker.Discovery, false
+config :racing_org_tracker, RacingOrg.Tracker.Serial, false
 
 # Device-identity key store: never write to the target's /data path under test.
 # Tests pass an explicit per-test temp `:base_path`; this is a defensive default
 # so an unparameterized call cannot touch /data on a CI/host machine.
-config :nautic_net_device, NauticNet.SecureTransport.KeyStore,
-  base_path: Path.join(System.tmp_dir!(), "nautic_net_device_keystore_test")
+config :racing_org_tracker, RacingOrg.Tracker.SecureTransport.KeyStore,
+  base_path: Path.join(System.tmp_dir!(), "racing_org_tracker_keystore_test")
 
 # The application boots an NMEA 2000 VirtualDevice as part of its supervision
 # tree. Give it the Fake driver so the tree starts without real CAN hardware.
