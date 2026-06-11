@@ -5,8 +5,8 @@ the boat's NMEA 2000 bus:
 
 | Broadcast | PGN(s) | Module |
 |---|---|---|
-| Race-start countdown ("Race Timer") | 130824 Key 117 | `RacingOrg.Tracker.Compute.RaceTimerBroadcaster` |
-| Next waypoint (bearing/distance) | 129284 + 129285 | `RacingOrg.Tracker.Compute.WaypointBroadcaster` |
+| Race-start countdown ("Race Timer") | 130824 Key 117 | `RacingOrg.Tracker.Pro.Compute.RaceTimerBroadcaster` |
+| Next waypoint (bearing/distance) | 129284 + 129285 | `RacingOrg.Tracker.Pro.Compute.WaypointBroadcaster` |
 
 Both broadcast ALWAYS — whenever the device holds an active race assignment — with no
 gate. They are PROPRIETARY/best-effort wire formats whose acceptance by a real B&G/Zeus
@@ -53,7 +53,7 @@ is the OWNER's**; this doc makes it turn-key.
    Either on the backend/app (assignment delivered + acked) or directly on the device:
 
    ```elixir
-   a = RacingOrg.Tracker.Commands.current_assignment()
+   a = RacingOrg.Tracker.Pro.Commands.current_assignment()
    a.race_assignment.official_start_time         # the gun (proto timestamp) — must be present
    a.race_assignment.sampling_rules.start_window_seconds  # the start sequence length
    a.active_mark_code                            # the next mark to steer to
@@ -208,9 +208,9 @@ Fill in per item. "Adjustment landed in" lists the exact code site for any chang
 | 14 | Zeus adopts active waypoint? | nice-to-have, likely NO | | | | (no 0183 out; data-box is the target) |
 
 **Where each adjustment lands (quick map):**
-- Through-gun representation → `lib/racing_org/tracker/compute/pgn_encode.ex` · `through_gun_ms/1`
-- Manufacturer header / reserved bits → `lib/racing_org/tracker/compute/pgn_encode.ex` · `manufacturer_word/1`
-- Companion 130824 keys → `lib/racing_org/tracker/compute/pgn_encode.ex` · `race_timer/1` (+ `serialize_with_entry/3`), fed from `RaceTimerBroadcaster`
+- Through-gun representation → `lib/racing_org/tracker/pro/compute/pgn_encode.ex` · `through_gun_ms/1`
+- Manufacturer header / reserved bits → `lib/racing_org/tracker/pro/compute/pgn_encode.ex` · `manufacturer_word/1`
+- Companion 130824 keys → `lib/racing_org/tracker/pro/compute/pgn_encode.ex` · `race_timer/1` (+ `serialize_with_entry/3`), fed from `RaceTimerBroadcaster`
 - Device NAME / manufacturer → `config/target.exs` (`:nmea, NMEA.VirtualDevice`)
 
 ---
@@ -244,8 +244,8 @@ host tests use), so you don't need a backend round-trip.
 Run on a host `iex -S mix` (no CAN bus needed) — captures the frame instead of sending it:
 
 ```elixir
-alias RacingOrg.Tracker.Compute.{RaceTimerBroadcaster, PgnEncode}
-alias RacingOrg.Tracker.Commands.Assignment
+alias RacingOrg.Tracker.Pro.Compute.{RaceTimerBroadcaster, PgnEncode}
+alias RacingOrg.Tracker.Pro.Commands.Assignment
 alias RacingOrg.Protobuf.{RaceAssignment, SamplingRules}
 
 # Fastest path — just the encoder, no GenServer:
@@ -273,12 +273,12 @@ assignment = %Assignment{assignment_id: "t", version: 1, command_id: "c", race_a
 
 (For `commands`, pass anything answering `current_assignment/0|1` returning the
 `%Assignment{}` — e.g. the `StubCommands` Agent in
-`test/racing_org/tracker/compute/race_timer_broadcaster_test.exs`.)
+`test/racing_org/tracker/pro/compute/race_timer_broadcaster_test.exs`.)
 
 ### B. Inject into the REAL transmit path on the DEVICE (frame hits the bus)
 
 On the device `iex` (validation firmware), start an EXTRA broadcaster instance whose
-`transmit_fn` is the real default (broadcasts via `RacingOrg.Tracker.virtual_device()`), with an
+`transmit_fn` is the real default (broadcasts via `RacingOrg.Tracker.Pro.virtual_device()`), with an
 injected gun/clock so you don't have to wait for a scheduled race — the sniffer then sees
 real 130824 frames on the wire:
 
@@ -292,10 +292,10 @@ race = struct(RacingOrg.Protobuf.RaceAssignment,
   official_start_time: RacingOrg.Protobuf.to_proto_timestamp(gun),
   sampling_rules: struct(RacingOrg.Protobuf.SamplingRules, start_window_seconds: 300))
 Process.put(:tmp_assignment,
-  %RacingOrg.Tracker.Commands.Assignment{assignment_id: "t", version: 1, command_id: "c", race_assignment: race})
+  %RacingOrg.Tracker.Pro.Commands.Assignment{assignment_id: "t", version: 1, command_id: "c", race_assignment: race})
 
 # tick_ms default → ~1 Hz; default transmit fn → real VirtualDevice broadcast.
-{:ok, _} = RacingOrg.Tracker.Compute.RaceTimerBroadcaster.start_link(name: nil, enabled: true, commands: TmpCmd)
+{:ok, _} = RacingOrg.Tracker.Pro.Compute.RaceTimerBroadcaster.start_link(name: nil, enabled: true, commands: TmpCmd)
 ```
 
 For the waypoint broadcaster, additionally inject `position_fn: fn -> {lat, lon} end` (own

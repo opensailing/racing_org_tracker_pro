@@ -13,9 +13,9 @@ and verification.
 > the device.
 
 This is the operational counterpart to the device wiring landed in P9-job-6
-(`RacingOrg.Tracker.SecureTransport.SessionHolder` / `ChannelClient` / `BootProvisioner` in
+(`RacingOrg.Tracker.Pro.SecureTransport.SessionHolder` / `ChannelClient` / `BootProvisioner` in
 the supervision tree, and the post-race `BulkUploader` trigger from
-`RacingOrg.Tracker.Race.Archive`).
+`RacingOrg.Tracker.Pro.Race.Archive`).
 
 > Terminology: "device" = the Nerves firmware in `racing_org_tracker`; "server" =
 > RacingOrg (`backend`, deployed on Fly). All crypto is Ed25519 + ChaCha20-Poly1305;
@@ -195,7 +195,7 @@ On the device console (`/data` identity), the fingerprint is lowercase hex
 `SHA-256(public_key)`:
 
 ```elixir
-{:ok, id} = RacingOrg.Tracker.SecureTransport.KeyStore.load()
+{:ok, id} = RacingOrg.Tracker.Pro.SecureTransport.KeyStore.load()
 id.fingerprint
 ```
 
@@ -204,7 +204,7 @@ value to use in §3.1 and §4.
 
 ### 3.3 Confirm the channel session is live
 
-- Device side: `RacingOrg.Tracker.SecureTransport.SessionHolder.live?()` returns `true`, and
+- Device side: `RacingOrg.Tracker.Pro.SecureTransport.SessionHolder.live?()` returns `true`, and
   device logs show `"[ChannelClient] secure session established"`.
 - Server side: the session is in the `SessionStore` (routed by `session_id`), and the
   device log line above only prints after the server's `handshake_ok`.

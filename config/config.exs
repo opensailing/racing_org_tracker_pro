@@ -48,7 +48,7 @@ config :racing_org_tracker,
 #       needs (no out-of-band claim token / nonce anymore — registration is tokenless
 #       and an admin associates the device to an account after it registers). It is
 #       the SINGLE enable for the secure-transport children.
-config :racing_org_tracker, RacingOrg.Tracker.SecureTransport.ServerIdentity,
+config :racing_org_tracker, RacingOrg.Tracker.Pro.SecureTransport.ServerIdentity,
   public_key: System.get_env("SECURE_TRANSPORT_SERVER_PUBLIC_KEY")
 
 # Data upload filter modes:
@@ -81,7 +81,7 @@ config :tesla, adapter: Tesla.Adapter.Mint
 
 # Tesla 1.20 soft-deprecates the `use Tesla` builder macro (still fully
 # supported) in favor of runtime configuration. We continue to use the builder
-# in RacingOrg.Tracker.WebClients.HTTPClient, so silence the per-compile warning.
+# in RacingOrg.Tracker.Pro.WebClients.HTTPClient, so silence the per-compile warning.
 config :tesla, disable_deprecated_builder_warning: true
 
 if Mix.target() == :host or Mix.target() == :"" do

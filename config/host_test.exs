@@ -5,14 +5,14 @@ import Config
 
 # Don't start these servers for testing; we will supervise them manually
 # in the test cases
-config :racing_org_tracker, RacingOrg.Tracker.CAN, false
-config :racing_org_tracker, RacingOrg.Tracker.Discovery, false
-config :racing_org_tracker, RacingOrg.Tracker.Serial, false
+config :racing_org_tracker, RacingOrg.Tracker.Pro.CAN, false
+config :racing_org_tracker, RacingOrg.Tracker.Pro.Discovery, false
+config :racing_org_tracker, RacingOrg.Tracker.Pro.Serial, false
 
 # Device-identity key store: never write to the target's /data path under test.
 # Tests pass an explicit per-test temp `:base_path`; this is a defensive default
 # so an unparameterized call cannot touch /data on a CI/host machine.
-config :racing_org_tracker, RacingOrg.Tracker.SecureTransport.KeyStore,
+config :racing_org_tracker, RacingOrg.Tracker.Pro.SecureTransport.KeyStore,
   base_path: Path.join(System.tmp_dir!(), "racing_org_tracker_keystore_test")
 
 # The application boots an NMEA 2000 VirtualDevice as part of its supervision

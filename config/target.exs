@@ -5,13 +5,13 @@ import Config
 
 case System.get_env("CAN_DRIVER") do
   "canusb" ->
-    config :racing_org_tracker, RacingOrg.Tracker.CAN,
-      driver: {RacingOrg.Tracker.CAN.CANUSB.Driver, start_logging?: true},
+    config :racing_org_tracker, RacingOrg.Tracker.Pro.CAN,
+      driver: {RacingOrg.Tracker.Pro.CAN.CANUSB.Driver, start_logging?: true},
       handlers: [
-        RacingOrg.Tracker.PacketHandler.DiscoverDevices,
-        RacingOrg.Tracker.PacketHandler.Inspect,
-        RacingOrg.Tracker.PacketHandler.SetTimeFromGPS,
-        RacingOrg.Tracker.PacketHandler.EmitTelemetry
+        RacingOrg.Tracker.Pro.PacketHandler.DiscoverDevices,
+        RacingOrg.Tracker.Pro.PacketHandler.Inspect,
+        RacingOrg.Tracker.Pro.PacketHandler.SetTimeFromGPS,
+        RacingOrg.Tracker.Pro.PacketHandler.EmitTelemetry
       ]
 
   "pican-m" ->
@@ -34,18 +34,18 @@ case System.get_env("CAN_DRIVER") do
       certification_level: :level_a
 
   "fake" ->
-    config :racing_org_tracker, RacingOrg.Tracker.CAN, driver: RacingOrg.Tracker.CAN.Fake.Driver
+    config :racing_org_tracker, RacingOrg.Tracker.Pro.CAN, driver: RacingOrg.Tracker.Pro.CAN.Fake.Driver
 
   "disabled" ->
-    config :racing_org_tracker, RacingOrg.Tracker.CAN, false
+    config :racing_org_tracker, RacingOrg.Tracker.Pro.CAN, false
 
   _else ->
     raise "the CAN_DRIVER environment variable must be one of: canusb, pican-m, disabled"
 end
 
-config :racing_org_tracker, RacingOrg.Tracker.Serial,
-  driver: RacingOrg.Tracker.Serial.SixFab.Driver,
-  handlers: [RacingOrg.Tracker.PacketHandler.SetTimeFromGPS]
+config :racing_org_tracker, RacingOrg.Tracker.Pro.Serial,
+  driver: RacingOrg.Tracker.Pro.Serial.SixFab.Driver,
+  handlers: [RacingOrg.Tracker.Pro.PacketHandler.SetTimeFromGPS]
 
 config :racing_org_tracker,
   data_set_directory: "/data/datasets",
@@ -150,7 +150,7 @@ config :nerves_ssh, authorized_keys: authorized_keys
 # Wi-Fi is configured ONLY when credentials were baked in at build time. On a
 # cellular-only deployment build (no creds), `wlan0` is left UNCONFIGURED so
 # wpa_supplicant never runs and the radio never scans (scanning is the bulk of the
-# Wi-Fi power draw) — and `:wifi_enabled` is set false so `RacingOrg.Tracker.WiFiPower` powers
+# Wi-Fi power draw) — and `:wifi_enabled` is set false so `RacingOrg.Tracker.Pro.WiFiPower` powers
 # the radio down at boot to save battery. With creds present (bench/dev build), Wi-Fi
 # is a normal client and provides LAN/SSH access; cellular is still used in the field.
 wifi_ssid = System.get_env("VINTAGE_NET_WIFI_SSID")

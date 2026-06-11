@@ -1,0 +1,263 @@
+defmodule RacingOrg.Tracker.Pro.Tracking.Config do
+  @moduledoc """
+  Owns the device's per-tracking-state damping + send-rate config: the
+  server-pushed `set_tracking` config (versioned, idempotent), persisted to `/data`
+  so it survives reboots WITHOUT reflashing, and applied to the telemetry pipeline
+  via an injected side effect.
+
+  Mirrors `RacingOrg.Tracker.Pro.WiFiManager` exactly:
+
+    * The persisted config in `RacingOrg.Tracker.Pro.Tracking.Store` is the AUTHORITY. On boot it
+      is loaded and treated as already-applied (so a re-push of the same version is a
+      no-op). With no persisted config the device runs SAFE DEFAULTS (1 Hz / no
+      damping) until the server pushes one — and because `applied_version` starts at
+      `nil`, the FIRST config (even `version: 0`, which is a REAL config — the server
+      defaults) is always applied.
+    * `apply_config/2` is idempotent on `version`: a `version` already applied (`<=`
+      the last-applied) is a no-op returning `{:ok, :unchanged}`. Otherwise it
+      persists the new config, records the version, invokes the injected `on_apply`
+      side effect (which re-drives `RacingOrg.Tracker.Pro.Sampling`), and returns `{:ok, config}`.
+
+  ## The wire contract (server → device, Slipstream event `"set_tracking"`)
+
+      %{ "version" => 0,
+         "states" => %{
+           "pre_race" => %{"damping_seconds" => 2.0, "send_rate_hz" => 1.0},
+           "starting" => %{"damping_seconds" => 1.0, "send_rate_hz" => 5.0},
+           "race"     => %{"damping_seconds" => 0.5, "send_rate_hz" => 10.0} } }
+
+  `version` is a monotonic integer starting at 0 (0 is a real config, not "unset").
+  Each state carries `damping_seconds` (float >= 0; 0 = pass-through) and
+  `send_rate_hz` (float > 0). All three states are always present.
+
+  All side effects are injectable via `start_link/1` opts so the apply logic is fully
+  unit-testable on host.
+  """
+
+  use GenServer
+  require Logger
+
+  alias RacingOrg.Tracker.Pro.Tracking.Store
+
+  @states [:pre_race, :starting, :race]
+
+  # Safe defaults until the server pushes a config: 1 Hz, no smoothing.
+  @default_state %{damping_seconds: 0.0, send_rate_hz: 1.0}
+
+  @default_store_dir "/data/tracking"
+
+  @type state_name :: :pre_race | :starting | :race
+  @type state_config :: %{damping_seconds: float(), send_rate_hz: float()}
+  @type config :: %{version: integer(), states: %{state_name() => state_config()}}
+
+  # --- Client API ---
+
+  @spec start_link(keyword()) :: GenServer.on_start()
+  def start_link(opts \\ []) do
+    case Keyword.fetch(opts, :name) do
+      {:ok, nil} -> GenServer.start_link(__MODULE__, opts)
+      {:ok, name} -> GenServer.start_link(__MODULE__, opts, name: name)
+      :error -> GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+    end
+  end
+
+  @doc """
+  Apply a server-pushed tracking config (public API, called by the WSS channel
+  handler). Accepts a map with string OR atom keys: `version` + `states`.
+
+  Idempotent on `version`: if `version <= last-applied version`, this is a no-op
+  returning `{:ok, :unchanged}`. The first config is always applied because the
+  last-applied version starts at `nil` (so even `version: 0` is newer). Returns
+  `{:ok, applied_config}` on apply, or `{:error, reason}` if the payload is
+  malformed (missing/invalid states); on error nothing is persisted/applied.
+  """
+  @spec apply_config(GenServer.server(), map()) ::
+          {:ok, config()} | {:ok, :unchanged} | {:error, atom()}
+  def apply_config(server \\ __MODULE__, config) when is_map(config) do
+    GenServer.call(server, {:apply_config, config})
+  end
+
+  @doc "The `{damping_seconds, send_rate_hz}` config for one tracking state."
+  @spec get_state(GenServer.server(), state_name()) :: state_config()
+  def get_state(server \\ __MODULE__, state_name) when state_name in @states do
+    GenServer.call(server, {:get_state, state_name})
+  end
+
+  @doc "The currently-applied version (`nil` if none applied yet)."
+  @spec applied_version(GenServer.server()) :: integer() | nil
+  def applied_version(server \\ __MODULE__) do
+    GenServer.call(server, :applied_version)
+  end
+
+  @doc "The full status: applied version + all three states."
+  @spec status(GenServer.server()) :: %{applied_version: integer() | nil, states: map()}
+  def status(server \\ __MODULE__) do
+    GenServer.call(server, :status)
+  end
+
+  # --- Server ---
+
+  @impl true
+  def init(opts) do
+    state = %{
+      store_dir: Keyword.get(opts, :store_dir, @default_store_dir),
+      on_apply: Keyword.get(opts, :on_apply, fn _config -> :ok end),
+      # nil = nothing applied yet, so any incoming version (incl. 0) is newer.
+      applied_version: nil,
+      states: default_states()
+    }
+
+    {:ok, reconcile(opts, state)}
+  end
+
+  @impl true
+  def handle_call({:apply_config, config}, _from, state) do
+    {result, state} = do_apply(config, state)
+    {:reply, result, state}
+  end
+
+  def handle_call({:get_state, state_name}, _from, state) do
+    {:reply, Map.get(state.states, state_name, @default_state), state}
+  end
+
+  def handle_call(:applied_version, _from, state) do
+    {:reply, state.applied_version, state}
+  end
+
+  def handle_call(:status, _from, state) do
+    {:reply, %{applied_version: state.applied_version, states: state.states}, state}
+  end
+
+  # --- Reconcile / apply pipeline ---
+
+  # Boot: a persisted config wins and is treated as already applied. An explicit
+  # `:initial_config` opt (used by tests) is applied the same way. Otherwise SAFE
+  # DEFAULTS until the server pushes one.
+  defp reconcile(opts, state) do
+    cond do
+      cfg = opts[:initial_config] ->
+        case normalize(cfg) do
+          {:ok, config} -> %{state | states: config.states, applied_version: config.version}
+          {:error, _} -> state
+        end
+
+      is_nil(state.store_dir) ->
+        state
+
+      true ->
+        case Store.load(state.store_dir) do
+          {:ok, config} ->
+            Logger.info("[Tracking.Config] reconciling persisted config (version=#{config.version})")
+            %{state | states: config.states, applied_version: config.version}
+
+          :empty ->
+            state
+        end
+    end
+  end
+
+  # Malformed payload: do not half-apply. A version <= the last-applied version is
+  # an idempotent no-op (nil applied = nothing applied yet, so any version is newer).
+  defp do_apply(raw, state) do
+    case normalize(raw) do
+      {:error, reason} ->
+        {{:error, reason}, state}
+
+      {:ok, %{version: version}}
+      when is_integer(version) and not is_nil(state.applied_version) and version <= state.applied_version ->
+        {{:ok, :unchanged}, state}
+
+      {:ok, config} ->
+        _ = maybe_persist(state.store_dir, config)
+        state = %{state | states: config.states, applied_version: config.version}
+        _ = safe_on_apply(state.on_apply, config)
+        {{:ok, config}, state}
+    end
+  end
+
+  defp maybe_persist(nil, _config), do: :ok
+  defp maybe_persist(dir, config), do: Store.save(dir, config)
+
+  defp safe_on_apply(fun, config) do
+    fun.(config)
+  rescue
+    error -> Logger.warning("[Tracking.Config] on_apply failed: #{inspect(error)}")
+  catch
+    :exit, _ -> :ok
+  end
+
+  # --- Normalization (string OR atom keys -> canonical) ---
+
+  defp normalize(%{} = raw) do
+    with {:ok, version} <- fetch_version(raw),
+         {:ok, states_map} <- fetch_states(raw),
+         {:ok, states} <- normalize_states(states_map) do
+      {:ok, %{version: version, states: states}}
+    end
+  end
+
+  defp normalize(_), do: {:error, :malformed}
+
+  defp fetch_version(raw) do
+    case fetch(raw, :version, "version") do
+      v when is_integer(v) -> {:ok, v}
+      v when is_binary(v) -> {:ok, String.to_integer(v)}
+      _ -> {:error, :bad_version}
+    end
+  rescue
+    _ -> {:error, :bad_version}
+  end
+
+  defp fetch_states(raw) do
+    case fetch(raw, :states, "states") do
+      %{} = states -> {:ok, states}
+      _ -> {:error, :bad_states}
+    end
+  end
+
+  defp normalize_states(states_map) do
+    Enum.reduce_while(@states, {:ok, %{}}, fn name, {:ok, acc} ->
+      case normalize_one(states_map, name) do
+        {:ok, sc} -> {:cont, {:ok, Map.put(acc, name, sc)}}
+        {:error, _} = err -> {:halt, err}
+      end
+    end)
+  end
+
+  defp normalize_one(states_map, name) do
+    raw = fetch(states_map, name, Atom.to_string(name))
+
+    case raw do
+      %{} ->
+        damping = fetch(raw, :damping_seconds, "damping_seconds")
+        rate = fetch(raw, :send_rate_hz, "send_rate_hz")
+
+        with {:ok, damping} <- to_damping(damping),
+             {:ok, rate} <- to_rate(rate) do
+          {:ok, %{damping_seconds: damping, send_rate_hz: rate}}
+        end
+
+      _ ->
+        {:error, {:missing_state, name}}
+    end
+  end
+
+  # damping >= 0 (0 = pass-through).
+  defp to_damping(n) when is_number(n) and n >= 0, do: {:ok, n / 1}
+  defp to_damping(_), do: {:error, :bad_damping}
+
+  # send rate strictly > 0.
+  defp to_rate(n) when is_number(n) and n > 0, do: {:ok, n / 1}
+  defp to_rate(_), do: {:error, :bad_rate}
+
+  defp fetch(map, atom_key, string_key) do
+    case Map.fetch(map, atom_key) do
+      {:ok, value} -> value
+      :error -> Map.get(map, string_key)
+    end
+  end
+
+  defp default_states do
+    Map.new(@states, fn name -> {name, @default_state} end)
+  end
+end

@@ -1,4 +1,4 @@
-defmodule RacingOrg.Tracker.Device.MixProject do
+defmodule RacingOrg.Tracker.Pro.Device.MixProject do
   use Mix.Project
 
   @app :racing_org_tracker
@@ -31,7 +31,7 @@ defmodule RacingOrg.Tracker.Device.MixProject do
   # Run "mix help compile.app" to learn about applications.
   def application do
     [
-      mod: {RacingOrg.Tracker.Application, []},
+      mod: {RacingOrg.Tracker.Pro.Application, []},
       extra_applications: [:logger, :runtime_tools, :inets, :crypto]
     ]
   end
@@ -74,7 +74,7 @@ defmodule RacingOrg.Tracker.Device.MixProject do
       {:expty, "~> 0.2.1", targets: @all_device_targets},
 
       # Slipstream powers the device's outbound, CGNAT-friendly WSS command
-      # channel to RacingOrg (RacingOrg.Tracker.SecureTransport.ChannelClient). It is
+      # channel to RacingOrg (RacingOrg.Tracker.Pro.SecureTransport.ChannelClient). It is
       # already resolved transitively via :nerves_hub_link (1.2.2 in mix.lock);
       # depend on it explicitly (and on all targets, so host tests can drive the
       # channel logic) and pin it to the resolved minor.
@@ -136,8 +136,7 @@ defmodule RacingOrg.Tracker.Device.MixProject do
     if path = System.get_env("RACING_ORG_PROTOBUF_PATH") do
       {:racing_org_protobuf, path: path}
     else
-      {:racing_org_protobuf,
-       git: "git@github.com:opensailing/racing_org_protobuf.git", branch: "main"}
+      {:racing_org_protobuf, git: "git@github.com:opensailing/racing_org_protobuf.git", branch: "main"}
     end
   end
 
