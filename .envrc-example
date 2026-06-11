@@ -13,10 +13,11 @@ export VINTAGE_NET_WIFI_PSK='hunter2'
 export AUTHORIZED_KEYS=''
 
 # NervesHub remote management (OTA updates + remote console). Leave unset to
-# disable. Get the key/secret from your NervesHub Product's Shared Secrets.
+# disable. KEY/SECRET come from your NervesHub Product's Shared Secrets; HOST is
+# your instance's device-endpoint hostname.
 export NERVES_HUB_HOST='your.nerveshub.host'
-export NERVES_HUB_PRODUCT_KEY='nhp_xxxxxxxx'
-export NERVES_HUB_PRODUCT_SECRET='nhs_xxxxxxxx'
+export NERVES_HUB_KEY='nhp_xxxxxxxx'
+export NERVES_HUB_SECRET='nhs_xxxxxxxx'
 
 # export REPLAY_LOG='canusb-000013.log'
 
@@ -57,9 +58,9 @@ read
 
 case $REPLY in 
   w)
-    echo 'Configuring web server'
-    export API_ENDPOINT="https://nautic-net-web-dev.fly.dev"
-    export UDP_ENDPOINT="nautic-net-web-dev.fly.dev:4001"
+    echo 'Configuring web server (SailRoute backend)'
+    export API_ENDPOINT="https://sailroute-backend.fly.dev"
+    export UDP_ENDPOINT="sailroute-backend.fly.dev:4001"
     ;;
   *)
     echo 'Configuring localhost server'
