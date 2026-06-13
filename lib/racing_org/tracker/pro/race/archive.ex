@@ -18,8 +18,8 @@ defmodule RacingOrg.Tracker.Pro.Race.Archive do
   require Logger
 
   alias RacingOrg.Tracker.Pro.Commands
-  alias RacingOrg.Protobuf.DataSet
-  alias RacingOrg.Protobuf.DeviceCommand
+  alias RacingOrg.Tracker.Protobuf.DataSet
+  alias RacingOrg.Tracker.Protobuf.DeviceCommand
   alias RacingOrg.Tracker.Pro.Race.BulkUploader
   alias RacingOrg.Tracker.Pro.Race.Recording
   alias RacingOrg.Tracker.Pro.Race.Retention

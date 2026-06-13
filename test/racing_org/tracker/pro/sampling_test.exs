@@ -2,12 +2,12 @@ defmodule RacingOrg.Tracker.Pro.SamplingTest do
   use ExUnit.Case, async: true
 
   alias RacingOrg.Tracker.Pro.Commands
-  alias RacingOrg.Protobuf.CourseMark
-  alias RacingOrg.Protobuf.DeviceCommand
-  alias RacingOrg.Protobuf.LatLon
-  alias RacingOrg.Protobuf.RaceAssignment
-  alias RacingOrg.Protobuf.SamplingRules
-  alias RacingOrg.Protobuf.ServerReply
+  alias RacingOrg.Tracker.Protobuf.CourseMark
+  alias RacingOrg.Tracker.Protobuf.DeviceCommand
+  alias RacingOrg.Tracker.Protobuf.LatLon
+  alias RacingOrg.Tracker.Protobuf.RaceAssignment
+  alias RacingOrg.Tracker.Protobuf.SamplingRules
+  alias RacingOrg.Tracker.Protobuf.ServerReply
   alias RacingOrg.Tracker.Pro.Sampling
   alias RacingOrg.Tracker.Pro.Tracking.Config
 
@@ -43,7 +43,7 @@ defmodule RacingOrg.Tracker.Pro.SamplingTest do
     }
   }
 
-  defp ts(dt), do: RacingOrg.Protobuf.to_proto_timestamp(dt)
+  defp ts(dt), do: RacingOrg.Tracker.Protobuf.to_proto_timestamp(dt)
 
   defp start_sampling(now, opts \\ []) do
     commands = start_supervised!({Commands, device_id: "dev"})

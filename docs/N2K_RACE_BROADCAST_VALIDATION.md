@@ -246,7 +246,7 @@ Run on a host `iex -S mix` (no CAN bus needed) — captures the frame instead of
 ```elixir
 alias RacingOrg.Tracker.Pro.Compute.{RaceTimerBroadcaster, PgnEncode}
 alias RacingOrg.Tracker.Pro.Commands.Assignment
-alias RacingOrg.Protobuf.{RaceAssignment, SamplingRules}
+alias RacingOrg.Tracker.Protobuf.{RaceAssignment, SamplingRules}
 
 # Fastest path — just the encoder, no GenServer:
 gun = ~U[2030-01-01 12:05:00Z]
@@ -257,7 +257,7 @@ PgnEncode.race_timer_from(DateTime.to_unix(gun, :millisecond), DateTime.to_unix(
 # Or drive the whole broadcaster with injected seams, capturing frames to this process:
 me = self()
 race = struct(RaceAssignment,
-  official_start_time: RacingOrg.Protobuf.to_proto_timestamp(gun),
+  official_start_time: RacingOrg.Tracker.Protobuf.to_proto_timestamp(gun),
   sampling_rules: struct(SamplingRules, start_window_seconds: 300))
 assignment = %Assignment{assignment_id: "t", version: 1, command_id: "c", race_assignment: race}
 
@@ -288,9 +288,9 @@ defmodule TmpCmd do
 end
 
 gun = DateTime.add(DateTime.utc_now(), 300, :second)   # 5:00 from now
-race = struct(RacingOrg.Protobuf.RaceAssignment,
-  official_start_time: RacingOrg.Protobuf.to_proto_timestamp(gun),
-  sampling_rules: struct(RacingOrg.Protobuf.SamplingRules, start_window_seconds: 300))
+race = struct(RacingOrg.Tracker.Protobuf.RaceAssignment,
+  official_start_time: RacingOrg.Tracker.Protobuf.to_proto_timestamp(gun),
+  sampling_rules: struct(RacingOrg.Tracker.Protobuf.SamplingRules, start_window_seconds: 300))
 Process.put(:tmp_assignment,
   %RacingOrg.Tracker.Pro.Commands.Assignment{assignment_id: "t", version: 1, command_id: "c", race_assignment: race})
 

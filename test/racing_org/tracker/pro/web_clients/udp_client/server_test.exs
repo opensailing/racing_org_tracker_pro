@@ -2,9 +2,9 @@ defmodule RacingOrg.Tracker.Pro.WebClients.UDPClient.ServerTest do
   use ExUnit.Case, async: true
 
   alias RacingOrg.Tracker.Pro.Commands
-  alias RacingOrg.Protobuf.DeviceCommand
-  alias RacingOrg.Protobuf.RaceAssignment
-  alias RacingOrg.Protobuf.ServerReply
+  alias RacingOrg.Tracker.Protobuf.DeviceCommand
+  alias RacingOrg.Tracker.Protobuf.RaceAssignment
+  alias RacingOrg.Tracker.Protobuf.ServerReply
   alias RacingOrg.Tracker.Pro.WebClients.UDPClient.Server
 
   test "forwards received UDP packets to the commands processor" do

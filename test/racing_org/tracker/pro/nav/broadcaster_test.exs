@@ -3,11 +3,11 @@ defmodule RacingOrg.Tracker.Pro.Nav.BroadcasterTest do
 
   alias RacingOrg.Tracker.Pro.Commands
   alias RacingOrg.Tracker.Pro.Nav.Broadcaster
-  alias RacingOrg.Protobuf.CourseMark
-  alias RacingOrg.Protobuf.DeviceCommand
-  alias RacingOrg.Protobuf.LatLon
-  alias RacingOrg.Protobuf.RaceAssignment
-  alias RacingOrg.Protobuf.ServerReply
+  alias RacingOrg.Tracker.Protobuf.CourseMark
+  alias RacingOrg.Tracker.Protobuf.DeviceCommand
+  alias RacingOrg.Tracker.Protobuf.LatLon
+  alias RacingOrg.Tracker.Protobuf.RaceAssignment
+  alias RacingOrg.Tracker.Protobuf.ServerReply
 
   defp start_broadcaster do
     test_pid = self()

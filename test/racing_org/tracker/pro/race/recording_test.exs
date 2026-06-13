@@ -1,8 +1,8 @@
 defmodule RacingOrg.Tracker.Pro.Race.RecordingTest do
   use ExUnit.Case, async: true
 
-  alias RacingOrg.Protobuf.DataSet
-  alias RacingOrg.Protobuf.RaceManifest
+  alias RacingOrg.Tracker.Protobuf.DataSet
+  alias RacingOrg.Tracker.Protobuf.RaceManifest
   alias RacingOrg.Tracker.Pro.Race.Recording
 
   setup do

@@ -2,7 +2,7 @@ defmodule RacingOrg.Tracker.Pro.DiscoveryTest do
   use ExUnit.Case
 
   alias RacingOrg.Tracker.Pro.Discovery
-  alias RacingOrg.Protobuf.NetworkDevice
+  alias RacingOrg.Tracker.Protobuf.NetworkDevice
   alias NMEA.NMEA2000.VirtualDevice.NetworkMonitor.DeviceInfo
 
   # Device discovery itself now happens inside the nmea VirtualDevice's

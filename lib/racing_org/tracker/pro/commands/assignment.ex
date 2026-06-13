@@ -10,7 +10,7 @@ defmodule RacingOrg.Tracker.Pro.Commands.Assignment do
   payload is kept whole so later phases can read course/sampling/timing detail.
   """
 
-  alias RacingOrg.Protobuf.DeviceCommand
+  alias RacingOrg.Tracker.Protobuf.DeviceCommand
 
   @type t :: %__MODULE__{}
 

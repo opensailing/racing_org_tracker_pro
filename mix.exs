@@ -114,7 +114,7 @@ defmodule RacingOrg.Tracker.Pro.Device.MixProject do
       # Local development
       [
         {:racing_org_nmea2000, path: Path.join(deps_path, "racing_org_nmea2000")},
-        {:racing_org_protobuf, path: Path.join(deps_path, "racing_org_protobuf")},
+        racing_org_tracker_protobuf_dep(deps_path),
         {:racing_org_system_rpi3,
          path: Path.join(deps_path, "racing_org_system_rpi3"), runtime: false, targets: :racing_org_rpi3},
         {:nmea, path: Path.join(deps_path, "nmea")}
@@ -123,20 +123,26 @@ defmodule RacingOrg.Tracker.Pro.Device.MixProject do
       # Pull from GitHub
       [
         {:racing_org_nmea2000, git: "git@github.com:opensailing/racing_org_nmea2000.git"},
-        racing_org_protobuf_dep(),
+        racing_org_tracker_protobuf_dep(),
         racing_org_system_dep(),
         racing_org_nmea_dep()
       ]
     end
   end
 
-  # Point at a local racing_org_protobuf checkout with RACING_ORG_PROTOBUF_PATH
+  # Point at a local racing_org_tracker_protobuf checkout with RACING_ORG_TRACKER_PROTOBUF_PATH
   # while developing the wire contract; otherwise pull main from GitHub.
-  defp racing_org_protobuf_dep do
-    if path = System.get_env("RACING_ORG_PROTOBUF_PATH") do
-      {:racing_org_protobuf, path: path}
-    else
-      {:racing_org_protobuf, git: "git@github.com:opensailing/racing_org_protobuf.git", branch: "main"}
+  defp racing_org_tracker_protobuf_dep(deps_path \\ nil) do
+    cond do
+      path = System.get_env("RACING_ORG_TRACKER_PROTOBUF_PATH") ->
+        {:racing_org_tracker_protobuf, path: path}
+
+      deps_path ->
+        {:racing_org_tracker_protobuf, path: Path.join(deps_path, "racing_org_tracker_protobuf")}
+
+      true ->
+        {:racing_org_tracker_protobuf,
+         git: "git@github.com:opensailing/racing_org_tracker_protobuf.git", branch: "main"}
     end
   end
 

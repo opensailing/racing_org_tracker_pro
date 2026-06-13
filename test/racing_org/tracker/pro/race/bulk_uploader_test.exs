@@ -8,7 +8,7 @@ defmodule RacingOrg.Tracker.Pro.Race.BulkUploaderTest do
 
     * the manifest is submitted as a base64 `manifest_protobuf` blob (+ the JSON
       routing envelope), and DECODES back to the device's chunk set
-      (`RacingOrg.Protobuf.RaceManifest`);
+      (`RacingOrg.Tracker.Protobuf.RaceManifest`);
     * each chunk upload carries the raw bytes base64 under `data` with the declared
       `chunk_index`/`chunk_key`/`checksum`/`byte_count`, and the bytes reassemble
       the original recording;
@@ -23,8 +23,8 @@ defmodule RacingOrg.Tracker.Pro.Race.BulkUploaderTest do
   """
   use ExUnit.Case, async: false
 
-  alias RacingOrg.Protobuf.DataSet
-  alias RacingOrg.Protobuf.RaceManifest
+  alias RacingOrg.Tracker.Protobuf.DataSet
+  alias RacingOrg.Tracker.Protobuf.RaceManifest
   alias RacingOrg.Tracker.Pro.Race.BulkUploader
   alias RacingOrg.Tracker.Pro.Race.Recording
   alias RacingOrg.Tracker.Pro.SecureTransport.KeyStore

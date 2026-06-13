@@ -2,10 +2,10 @@ defmodule RacingOrg.Tracker.Pro.CommandsTest do
   use ExUnit.Case, async: true
 
   alias RacingOrg.Tracker.Pro.Commands
-  alias RacingOrg.Protobuf.CommandAck
-  alias RacingOrg.Protobuf.DeviceCommand
-  alias RacingOrg.Protobuf.RaceAssignment
-  alias RacingOrg.Protobuf.ServerReply
+  alias RacingOrg.Tracker.Protobuf.CommandAck
+  alias RacingOrg.Tracker.Protobuf.DeviceCommand
+  alias RacingOrg.Tracker.Protobuf.RaceAssignment
+  alias RacingOrg.Tracker.Protobuf.ServerReply
 
   setup do
     # A fixed "now" so expiry is deterministic.
@@ -35,7 +35,7 @@ defmodule RacingOrg.Tracker.Pro.CommandsTest do
     |> ServerReply.encode()
   end
 
-  defp ts(%DateTime{} = dt), do: RacingOrg.Protobuf.to_proto_timestamp(dt)
+  defp ts(%DateTime{} = dt), do: RacingOrg.Tracker.Protobuf.to_proto_timestamp(dt)
 
   test "applies a valid command and exposes the assignment + ACK", %{commands: c} do
     assert :applied = Commands.apply_reply(c, encode(command_id: "cmd-1", assignment_version: 2))

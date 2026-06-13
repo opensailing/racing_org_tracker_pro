@@ -2,12 +2,12 @@ defmodule RacingOrg.Tracker.Pro.Race.ArchiveTest do
   use ExUnit.Case, async: true
 
   alias RacingOrg.Tracker.Pro.Commands
-  alias RacingOrg.Protobuf.DataSet
-  alias RacingOrg.Protobuf.DeviceCommand
-  alias RacingOrg.Protobuf.ManifestVerificationResult
-  alias RacingOrg.Protobuf.MissingChunkRequest
-  alias RacingOrg.Protobuf.RaceAssignment
-  alias RacingOrg.Protobuf.ServerReply
+  alias RacingOrg.Tracker.Protobuf.DataSet
+  alias RacingOrg.Tracker.Protobuf.DeviceCommand
+  alias RacingOrg.Tracker.Protobuf.ManifestVerificationResult
+  alias RacingOrg.Tracker.Protobuf.MissingChunkRequest
+  alias RacingOrg.Tracker.Protobuf.RaceAssignment
+  alias RacingOrg.Tracker.Protobuf.ServerReply
   alias RacingOrg.Tracker.Pro.Race.Archive
   alias RacingOrg.Tracker.Pro.Race.Recording
 

@@ -68,8 +68,8 @@ defmodule RacingOrg.Tracker.Pro.Race.BulkUploader do
 
   require Logger
 
-  alias RacingOrg.Protobuf.ChunkDescriptor
-  alias RacingOrg.Protobuf.RaceManifest
+  alias RacingOrg.Tracker.Protobuf.ChunkDescriptor
+  alias RacingOrg.Tracker.Protobuf.RaceManifest
   alias RacingOrg.Tracker.Pro.Race.Recording
   alias RacingOrg.Tracker.Pro.SecureTransport.Backoff
   alias RacingOrg.Tracker.Pro.SecureTransport.KeyStore
@@ -506,7 +506,7 @@ defmodule RacingOrg.Tracker.Pro.Race.BulkUploader do
   end
 
   defp proto_ts(nil), do: nil
-  defp proto_ts(%DateTime{} = dt), do: RacingOrg.Protobuf.to_proto_timestamp(dt)
+  defp proto_ts(%DateTime{} = dt), do: RacingOrg.Tracker.Protobuf.to_proto_timestamp(dt)
 
   # Tesla.Middleware.JSON is NOT in the client stack (we hand-encode requests), so a
   # 2xx response body may arrive as a raw JSON string; decode defensively.

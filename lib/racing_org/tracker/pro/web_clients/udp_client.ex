@@ -2,7 +2,7 @@ defmodule RacingOrg.Tracker.Pro.WebClients.UDPClient do
   @moduledoc """
   Sends DataSet telemetry over UDP as AEAD-only — there is NO plaintext fallback.
 
-  A DataSet is an encoded protobuf binary (`RacingOrg.Protobuf.DataSet`). The device
+  A DataSet is an encoded protobuf binary (`RacingOrg.Tracker.Protobuf.DataSet`). The device
   ONLY ever puts a sealed AEAD frame on the wire:
 
     * If a **live** SecureTransport session exists

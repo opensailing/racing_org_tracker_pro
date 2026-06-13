@@ -133,7 +133,7 @@ defmodule RacingOrg.Tracker.Pro.SecureTransport.ChannelHandler do
   def handle_command(payload, command_id, command_server \\ Commands) do
     with {:ok, reply_b64} <- fetch_field(payload, "reply"),
          {:ok, reply_wire} <- decode_b64(reply_b64),
-         {:ok, %struct{} = reply} when struct == RacingOrg.Protobuf.ServerReply <-
+         {:ok, %struct{} = reply} when struct == RacingOrg.Tracker.Protobuf.ServerReply <-
            Commands.decode(reply_wire) do
       apply_and_ack(command_server, reply, command_id)
     else

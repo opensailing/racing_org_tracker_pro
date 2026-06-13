@@ -4,9 +4,9 @@ defmodule RacingOrg.Tracker.Pro.Nav.StateTest do
   alias RacingOrg.Tracker.Pro.Commands.Assignment
   alias RacingOrg.Tracker.Pro.Nav.Geo
   alias RacingOrg.Tracker.Pro.Nav.State
-  alias RacingOrg.Protobuf.CourseMark
-  alias RacingOrg.Protobuf.LatLon
-  alias RacingOrg.Protobuf.RaceAssignment
+  alias RacingOrg.Tracker.Protobuf.CourseMark
+  alias RacingOrg.Tracker.Protobuf.LatLon
+  alias RacingOrg.Tracker.Protobuf.RaceAssignment
 
   describe "Geo" do
     test "distance is ~111 km per degree of latitude" do

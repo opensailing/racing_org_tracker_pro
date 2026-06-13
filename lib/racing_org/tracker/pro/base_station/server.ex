@@ -6,11 +6,11 @@ defmodule RacingOrg.Tracker.Pro.BaseStation.Server do
   alias Circuits.UART
   alias Circuits.UART.Framing.Line
 
-  alias RacingOrg.Protobuf.DataSet
-  alias RacingOrg.Protobuf.DataSet.DataPoint
-  alias RacingOrg.Protobuf.LoRaPacket
-  alias RacingOrg.Protobuf.RoverData
-  alias RacingOrg.Protobuf.TrackerSample
+  alias RacingOrg.Tracker.Protobuf.DataSet
+  alias RacingOrg.Tracker.Protobuf.DataSet.DataPoint
+  alias RacingOrg.Tracker.Protobuf.LoRaPacket
+  alias RacingOrg.Tracker.Protobuf.RoverData
+  alias RacingOrg.Tracker.Protobuf.TrackerSample
   alias RacingOrg.Tracker.Pro.WebClients.UDPClient
 
   def start_link do

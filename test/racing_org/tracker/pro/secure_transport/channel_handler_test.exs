@@ -11,10 +11,10 @@ defmodule RacingOrg.Tracker.Pro.SecureTransport.ChannelHandlerTest do
   use ExUnit.Case, async: true
 
   alias RacingOrg.Tracker.Pro.Commands
-  alias RacingOrg.Protobuf.CommandAck
-  alias RacingOrg.Protobuf.DeviceCommand
-  alias RacingOrg.Protobuf.RaceAssignment
-  alias RacingOrg.Protobuf.ServerReply
+  alias RacingOrg.Tracker.Protobuf.CommandAck
+  alias RacingOrg.Tracker.Protobuf.DeviceCommand
+  alias RacingOrg.Tracker.Protobuf.RaceAssignment
+  alias RacingOrg.Tracker.Protobuf.ServerReply
   alias RacingOrg.Tracker.Pro.SecureTransport.ChannelHandler
   alias RacingOrg.Tracker.Pro.SecureTransport.Handshake
   alias RacingOrg.Tracker.Pro.SecureTransport.Primitives

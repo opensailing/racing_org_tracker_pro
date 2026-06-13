@@ -7,7 +7,7 @@ defmodule RacingOrg.Tracker.Pro.Telemetry do
 
   alias RacingOrg.Tracker.Pro.DataSetRecorder
   alias RacingOrg.Tracker.Pro.DeviceInfo
-  alias RacingOrg.Protobuf
+  alias RacingOrg.Tracker.Protobuf
 
   def child_spec(_opts) do
     %{

@@ -11,7 +11,7 @@ defmodule RacingOrg.Tracker.Pro.DataSetUploader do
   require Logger
 
   alias RacingOrg.Tracker.Pro.DataSetRecorder
-  alias RacingOrg.Protobuf.DataSet
+  alias RacingOrg.Tracker.Protobuf.DataSet
   alias RacingOrg.Tracker.Pro.WebClients.HTTPClient
   alias RacingOrg.Tracker.Pro.WebClients.UDPClient
 

@@ -4,7 +4,7 @@ defmodule RacingOrg.Tracker.Pro.Discovery do
   """
   use GenServer
 
-  alias RacingOrg.Protobuf.NetworkDevice
+  alias RacingOrg.Tracker.Protobuf.NetworkDevice
   alias NMEA.NMEA2000.VirtualDevice
   alias NMEA.NMEA2000.VirtualDevice.NetworkMonitor.DeviceInfo
 

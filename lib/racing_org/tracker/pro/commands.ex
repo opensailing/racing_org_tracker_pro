@@ -17,9 +17,9 @@ defmodule RacingOrg.Tracker.Pro.Commands do
 
   alias RacingOrg.Tracker.Pro.Commands.Assignment
   alias RacingOrg.Tracker.Pro.Commands.Store
-  alias RacingOrg.Protobuf.CommandAck
-  alias RacingOrg.Protobuf.DeviceCommand
-  alias RacingOrg.Protobuf.ServerReply
+  alias RacingOrg.Tracker.Protobuf.CommandAck
+  alias RacingOrg.Tracker.Protobuf.DeviceCommand
+  alias RacingOrg.Tracker.Protobuf.ServerReply
 
   @protocol_version 1
 

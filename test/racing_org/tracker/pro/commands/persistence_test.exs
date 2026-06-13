@@ -2,14 +2,14 @@ defmodule RacingOrg.Tracker.Pro.Commands.PersistenceTest do
   use ExUnit.Case, async: true
 
   alias RacingOrg.Tracker.Pro.Commands
-  alias RacingOrg.Protobuf.ActiveWaypointUpdate
-  alias RacingOrg.Protobuf.CancelAssignment
-  alias RacingOrg.Protobuf.DeviceCommand
-  alias RacingOrg.Protobuf.LatLon
-  alias RacingOrg.Protobuf.NoopCommand
-  alias RacingOrg.Protobuf.RaceAssignment
-  alias RacingOrg.Protobuf.RouteUpdate
-  alias RacingOrg.Protobuf.ServerReply
+  alias RacingOrg.Tracker.Protobuf.ActiveWaypointUpdate
+  alias RacingOrg.Tracker.Protobuf.CancelAssignment
+  alias RacingOrg.Tracker.Protobuf.DeviceCommand
+  alias RacingOrg.Tracker.Protobuf.LatLon
+  alias RacingOrg.Tracker.Protobuf.NoopCommand
+  alias RacingOrg.Tracker.Protobuf.RaceAssignment
+  alias RacingOrg.Tracker.Protobuf.RouteUpdate
+  alias RacingOrg.Tracker.Protobuf.ServerReply
 
   setup do
     dir = Path.join(System.tmp_dir!(), "nn_persist_#{System.unique_integer([:positive])}")

@@ -4,9 +4,9 @@ defmodule RacingOrg.Tracker.Pro.Compute.WaypointBroadcasterTest do
   alias RacingOrg.Tracker.Pro.Commands.Assignment
   alias RacingOrg.Tracker.Pro.Compute.WaypointBroadcaster
   alias RacingOrg.Tracker.Pro.Nav.Geo
-  alias RacingOrg.Protobuf.CourseMark
-  alias RacingOrg.Protobuf.LatLon
-  alias RacingOrg.Protobuf.RaceAssignment
+  alias RacingOrg.Tracker.Protobuf.CourseMark
+  alias RacingOrg.Tracker.Protobuf.LatLon
+  alias RacingOrg.Tracker.Protobuf.RaceAssignment
 
   @pgn_nav_data 129_284
   @pgn_route 129_285

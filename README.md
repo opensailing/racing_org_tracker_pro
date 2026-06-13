@@ -38,6 +38,6 @@ If you need to work on the `racing_org_*` libraries locally, you can specify `RA
 dependencies as sibling directories to this repo.
 
     racing_org_tracker/         <-- you are here
-    racing_org_protobuf/
+    racing_org_tracker_protobuf/
     racing_org_system_rpi3/
     nmea/

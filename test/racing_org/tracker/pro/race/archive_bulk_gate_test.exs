@@ -11,10 +11,10 @@ defmodule RacingOrg.Tracker.Pro.Race.ArchiveBulkGateTest do
   use ExUnit.Case, async: false
 
   alias RacingOrg.Tracker.Pro.Commands
-  alias RacingOrg.Protobuf.DataSet
-  alias RacingOrg.Protobuf.DeviceCommand
-  alias RacingOrg.Protobuf.RaceAssignment
-  alias RacingOrg.Protobuf.ServerReply
+  alias RacingOrg.Tracker.Protobuf.DataSet
+  alias RacingOrg.Tracker.Protobuf.DeviceCommand
+  alias RacingOrg.Tracker.Protobuf.RaceAssignment
+  alias RacingOrg.Tracker.Protobuf.ServerReply
   alias RacingOrg.Tracker.Pro.Race.Archive
   alias RacingOrg.Tracker.Pro.Race.BulkUploader
   alias RacingOrg.Tracker.Pro.SecureTransport.KeyStore

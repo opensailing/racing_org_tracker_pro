@@ -26,7 +26,7 @@ defmodule RacingOrg.Tracker.Pro do
   Builds an upload `DataSet` for `data_points`, tagged with this device's
   identifier and the latest applied server-command acknowledgement (so RacingOrg
   can track which commands the device has applied). `opts` are passed through to
-  `RacingOrg.Protobuf.new_data_set/2` and override the defaults.
+  `RacingOrg.Tracker.Protobuf.new_data_set/2` and override the defaults.
   """
   def data_set(data_points, opts \\ []) do
     base = [
@@ -36,7 +36,7 @@ defmodule RacingOrg.Tracker.Pro do
       race_phase: current_race_phase()
     ]
 
-    RacingOrg.Protobuf.new_data_set(data_points, Keyword.merge(base, opts))
+    RacingOrg.Tracker.Protobuf.new_data_set(data_points, Keyword.merge(base, opts))
   end
 
   defp current_sample_mode do

@@ -3,8 +3,8 @@ defmodule RacingOrg.Tracker.Pro.Compute.RaceTimerBroadcasterTest do
 
   alias RacingOrg.Tracker.Pro.Commands.Assignment
   alias RacingOrg.Tracker.Pro.Compute.RaceTimerBroadcaster
-  alias RacingOrg.Protobuf.RaceAssignment
-  alias RacingOrg.Protobuf.SamplingRules
+  alias RacingOrg.Tracker.Protobuf.RaceAssignment
+  alias RacingOrg.Tracker.Protobuf.SamplingRules
 
   # PGN 130824 Key 117 "Race Timer", value u32 LE MILLISECONDS, prefixed by the
   # 2-byte B&G/Marine manufacturer header. Decode the timer ms back out of a payload.
@@ -14,7 +14,7 @@ defmodule RacingOrg.Tracker.Pro.Compute.RaceTimerBroadcasterTest do
 
   @gun ~U[2026-06-03 12:00:00Z]
 
-  defp ts(%DateTime{} = dt), do: RacingOrg.Protobuf.to_proto_timestamp(dt)
+  defp ts(%DateTime{} = dt), do: RacingOrg.Tracker.Protobuf.to_proto_timestamp(dt)
 
   # An assignment with a gun time `start` and a start-sequence length `sw` seconds.
   # `sw` maps to sampling_rules.start_window_seconds (the existing start-window concept).

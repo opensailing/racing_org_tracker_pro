@@ -3,10 +3,10 @@ defmodule RacingOrg.Tracker.Pro.DataSetAckTest do
   use ExUnit.Case
 
   alias RacingOrg.Tracker.Pro.Commands
-  alias RacingOrg.Protobuf.CommandAck
-  alias RacingOrg.Protobuf.DeviceCommand
-  alias RacingOrg.Protobuf.RaceAssignment
-  alias RacingOrg.Protobuf.ServerReply
+  alias RacingOrg.Tracker.Protobuf.CommandAck
+  alias RacingOrg.Tracker.Protobuf.DeviceCommand
+  alias RacingOrg.Tracker.Protobuf.RaceAssignment
+  alias RacingOrg.Tracker.Protobuf.ServerReply
 
   test "data_set/2 carries the latest applied command ACK" do
     reply =

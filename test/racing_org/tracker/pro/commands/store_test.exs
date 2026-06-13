@@ -3,7 +3,7 @@ defmodule RacingOrg.Tracker.Pro.Commands.StoreTest do
 
   alias RacingOrg.Tracker.Pro.Commands.Assignment
   alias RacingOrg.Tracker.Pro.Commands.Store
-  alias RacingOrg.Protobuf.RaceAssignment
+  alias RacingOrg.Tracker.Protobuf.RaceAssignment
 
   setup do
     dir = Path.join(System.tmp_dir!(), "nn_store_#{System.unique_integer([:positive])}")

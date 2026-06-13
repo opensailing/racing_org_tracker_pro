@@ -16,8 +16,8 @@ defmodule RacingOrg.Tracker.Pro.Race.Recording do
 
   require Logger
 
-  alias RacingOrg.Protobuf.ChunkDescriptor
-  alias RacingOrg.Protobuf.RaceManifest
+  alias RacingOrg.Tracker.Protobuf.ChunkDescriptor
+  alias RacingOrg.Tracker.Protobuf.RaceManifest
 
   @meta_file "meta.bin"
   @manifest_file "manifest.pb"
@@ -229,5 +229,5 @@ defmodule RacingOrg.Tracker.Pro.Race.Recording do
   end
 
   defp proto_ts(nil), do: nil
-  defp proto_ts(%DateTime{} = dt), do: RacingOrg.Protobuf.to_proto_timestamp(dt)
+  defp proto_ts(%DateTime{} = dt), do: RacingOrg.Tracker.Protobuf.to_proto_timestamp(dt)
 end

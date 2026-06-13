@@ -2,15 +2,15 @@ defmodule RacingOrg.Tracker.Pro.Sampling.PhaseTest do
   use ExUnit.Case, async: true
 
   alias RacingOrg.Tracker.Pro.Commands.Assignment
-  alias RacingOrg.Protobuf.CourseMark
-  alias RacingOrg.Protobuf.LatLon
-  alias RacingOrg.Protobuf.RaceAssignment
-  alias RacingOrg.Protobuf.SamplingRules
+  alias RacingOrg.Tracker.Protobuf.CourseMark
+  alias RacingOrg.Tracker.Protobuf.LatLon
+  alias RacingOrg.Tracker.Protobuf.RaceAssignment
+  alias RacingOrg.Tracker.Protobuf.SamplingRules
   alias RacingOrg.Tracker.Pro.Sampling.Phase
 
   @start ~U[2026-06-03 12:00:00Z]
 
-  defp ts(%DateTime{} = dt), do: RacingOrg.Protobuf.to_proto_timestamp(dt)
+  defp ts(%DateTime{} = dt), do: RacingOrg.Tracker.Protobuf.to_proto_timestamp(dt)
 
   defp assignment(opts) do
     rules =

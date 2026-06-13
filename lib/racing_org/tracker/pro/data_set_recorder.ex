@@ -12,8 +12,8 @@ defmodule RacingOrg.Tracker.Pro.DataSetRecorder do
   require Logger
 
   alias RacingOrg.Tracker.Pro.DataSetUploader
-  alias RacingOrg.Protobuf
-  alias RacingOrg.Protobuf.DataSet
+  alias RacingOrg.Tracker.Protobuf
+  alias RacingOrg.Tracker.Protobuf.DataSet
 
   def start_link(opts) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
